@@ -1,6 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  CheckCircle2,
+  FileText,
+  MessagesSquare,
+  Pill,
+  Plus,
+  Save,
+  Trash2,
+  UserRoundCheck,
+} from "lucide-react";
+import { toast } from "sonner";
 import type { SpeakerLabel, Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
@@ -13,7 +24,12 @@ import type {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useConfirm } from "@/components/ui/confirm";
 
 const SPEAKERS: SpeakerLabel[] = ["doctor", "patient", "other", "unknown"];
 const AUTOSAVE_MS = 30_000;
@@ -31,6 +47,28 @@ function emptyNote(): NoteFields {
     differentials: [],
     follow_up: "",
     no_medication: false,
+  };
+}
+
+// The API can legitimately return null for chief_complaint/primary_diagnosis
+// (no clinical content identified in the transcript). A plain object spread
+// would let that null overwrite emptyNote()'s "" default, and every text
+// field below is otherwise assumed to be a non-null string (e.g.
+// `note.chief_complaint.trim()` in canSign) — coalesce every string field
+// explicitly so a null from the API can never reach a controlled <input> or
+// a bare .trim() call.
+function normalizeNote(partial: Partial<NoteFields> | null | undefined): NoteFields {
+  const merged = { ...emptyNote(), ...(partial ?? {}) };
+  return {
+    ...merged,
+    chief_complaint: merged.chief_complaint ?? "",
+    subjective: merged.subjective ?? "",
+    objective: merged.objective ?? "",
+    assessment: merged.assessment ?? "",
+    plan: merged.plan ?? "",
+    primary_diagnosis: merged.primary_diagnosis ?? "",
+    follow_up: merged.follow_up ?? "",
+    differentials: merged.differentials ?? [],
   };
 }
 
@@ -53,6 +91,7 @@ export function ReviewEditor({
   onFinalised: () => void | Promise<unknown>;
 }) {
   const { request } = useApi();
+  const confirm = useConfirm();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [note, setNote] = useState<NoteFields>(emptyNote());
@@ -95,7 +134,7 @@ export function ReviewEditor({
         request<NoteResponse>(`/api/sessions/${sessionId}/note`),
       ]);
       setTurns(tx?.turns ?? []);
-      setNote({ ...emptyNote(), ...(n?.note ?? {}) });
+      setNote(normalizeNote(n?.note));
       setPrescriptions(n?.prescriptions ?? []);
       setSummary(n?.summary ?? null);
       setError(null);
@@ -141,6 +180,7 @@ export function ReviewEditor({
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
+      toast.error(err instanceof Error ? err.message : "Save failed.");
     } finally {
       setSaving(false);
     }
@@ -187,6 +227,24 @@ export function ReviewEditor({
     markDirty();
   }
 
+  // Diarization role assignment is a best-effort guess (providers label speakers
+  // by first-appearance order and we map speaker 0 → doctor); if the patient
+  // spoke first the whole transcript comes back with doctor/patient inverted.
+  // One click flips every doctor↔patient label so the doctor doesn't have to
+  // reassign each turn individually.
+  function swapDoctorPatient() {
+    setTurns((ts) =>
+      ts.map((t) =>
+        t.speaker === "doctor"
+          ? { ...t, speaker: "patient" }
+          : t.speaker === "patient"
+            ? { ...t, speaker: "doctor" }
+            : t,
+      ),
+    );
+    markDirty();
+  }
+
   function updateRx(i: number, patch: Partial<PrescriptionDraft>) {
     setPrescriptions((rx) =>
       rx.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
@@ -213,58 +271,94 @@ export function ReviewEditor({
 
   async function signoff() {
     if (!canSign) return;
-    const ok = window.confirm(`Confirm and finalise this note as Dr. ${doctorName}?`);
+    const ok = await confirm({
+      title: "Sign & finalise note?",
+      description: `This will finalise the clinical note as Dr. ${doctorName}. Finalised notes are locked from further editing.`,
+      confirmText: "Sign & Finalise",
+      variant: "primary",
+    });
     if (!ok) return;
     setSigning(true);
     try {
       if (dirtyRef.current) await save();
       await request(`/api/sessions/${sessionId}/signoff`, { method: "POST" });
+      toast.success("Note finalised");
       await onFinalised();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-off failed.");
+      toast.error(err instanceof Error ? err.message : "Sign-off failed.");
     } finally {
       setSigning(false);
     }
   }
 
   if (loading) {
-    return <p className="text-slate-400">Loading note…</p>;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-12 w-full" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Skeleton className="h-80 w-full" />
+          <Skeleton className="h-80 w-full" />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       {/* Save status bar */}
-      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-4 py-2 text-sm">
-        <div className="text-slate-500">
-          {saving
-            ? "Saving…"
-            : dirty
-              ? "Unsaved changes"
-              : savedAt
-                ? `Saved ${savedAt}`
-                : "Auto-saves as you edit"}
+      <div className="sticky top-14 z-30 flex items-center justify-between rounded-md border border-border bg-card/90 px-4 py-2 text-sm backdrop-blur">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          {saving ? (
+            <>
+              <Save className="size-4 animate-pulse" />
+              Saving…
+            </>
+          ) : dirty ? (
+            <>
+              <span className="size-2 rounded-full bg-warning" />
+              Unsaved changes
+            </>
+          ) : savedAt ? (
+            <>
+              <CheckCircle2 className="size-4 text-success" />
+              Saved {savedAt}
+            </>
+          ) : (
+            "Auto-saves as you edit"
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => void save()}>
+            <Save className="size-4" />
             Save now
           </Button>
           <Button
             size="sm"
             onClick={signoff}
-            disabled={!canSign || signing}
+            disabled={!canSign}
+            loading={signing}
             title={
               canSign
                 ? undefined
                 : "Chief complaint, primary diagnosis, and at least one prescription (or 'No medication') are required."
             }
           >
+            <UserRoundCheck className="size-4" />
             {signing ? "Finalising…" : "Sign & Finalise"}
           </Button>
         </div>
       </div>
 
+      {!canSign && (
+        <p className="text-xs text-muted-foreground">
+          To finalise: add a chief complaint, a primary diagnosis, and at least
+          one prescription (or tick “No medication”).
+        </p>
+      )}
+
       {error && (
-        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -272,34 +366,51 @@ export function ReviewEditor({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* LEFT: transcript */}
         <Card className="h-fit">
-          <CardHeader>
-            <h2 className="font-medium text-slate-900">Transcript</h2>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <MessagesSquare className="size-4 text-primary" />
+              Transcript
+            </CardTitle>
+            {turns.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={swapDoctorPatient}
+                title="Flip all doctor and patient labels (use if speakers are reversed)"
+              >
+                Swap doctor / patient
+              </Button>
+            )}
           </CardHeader>
           <CardBody className="space-y-3">
             {turns.length === 0 ? (
-              <p className="text-sm text-slate-400">No transcript turns.</p>
+              <p className="text-sm text-muted-foreground">
+                No transcript turns.
+              </p>
             ) : (
               turns.map((t, i) => (
                 <div
                   key={i}
-                  className="rounded-md border border-slate-100 bg-slate-50 p-2"
+                  className="rounded-md border border-border bg-muted/40 p-3"
                 >
-                  <select
-                    value={t.speaker}
-                    onChange={(e) =>
-                      updateTurn(i, {
-                        speaker: e.target.value as SpeakerLabel,
-                      })
-                    }
-                    onBlur={flushSave}
-                    className="mb-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs capitalize"
-                  >
-                    {SPEAKERS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mb-2 w-36">
+                    <Select
+                      value={t.speaker}
+                      onChange={(e) =>
+                        updateTurn(i, {
+                          speaker: e.target.value as SpeakerLabel,
+                        })
+                      }
+                      onBlur={flushSave}
+                      className="h-8 capitalize text-xs"
+                    >
+                      {SPEAKERS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <Textarea
                     value={t.text}
                     rows={2}
@@ -314,63 +425,49 @@ export function ReviewEditor({
 
         {/* RIGHT: tabs */}
         <Card className="h-fit">
-          <CardHeader className="pb-0">
-            <div className="flex gap-1">
-              {(
-                [
-                  ["soap", "SOAP Note"],
-                  ["rx", "Prescriptions"],
-                  ["summary", "Visit Summary"],
-                ] as [Tab, string][]
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setTab(key)}
-                  className={
-                    tab === key
-                      ? "rounded-t-md border-b-2 border-brand px-3 py-2 text-sm font-medium text-brand"
-                      : "px-3 py-2 text-sm text-slate-500 hover:text-slate-700"
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-4">
-            {tab === "soap" && (
-              <SoapFields
-                note={note}
-                onField={setNoteField}
-                onBlur={flushSave}
-              />
-            )}
+          <CardBody>
+            <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+              <TabsList className="w-full">
+                <TabsTrigger value="soap" className="flex-1">
+                  <FileText className="size-4" />
+                  SOAP
+                </TabsTrigger>
+                <TabsTrigger value="rx" className="flex-1">
+                  <Pill className="size-4" />
+                  Rx
+                </TabsTrigger>
+                <TabsTrigger value="summary" className="flex-1">
+                  <MessagesSquare className="size-4" />
+                  Summary
+                </TabsTrigger>
+              </TabsList>
 
-            {tab === "rx" && (
-              <RxTable
-                prescriptions={prescriptions}
-                noMedication={note.no_medication}
-                onToggleNoMed={(v) => setNoteField("no_medication", v)}
-                onUpdate={updateRx}
-                onAdd={addRx}
-                onRemove={removeRx}
-                onBlur={flushSave}
-              />
-            )}
+              <TabsContent value="soap">
+                <SoapFields note={note} onField={setNoteField} onBlur={flushSave} />
+              </TabsContent>
 
-            {tab === "summary" && (
-              <div className="space-y-2">
+              <TabsContent value="rx">
+                <RxTable
+                  prescriptions={prescriptions}
+                  noMedication={note.no_medication}
+                  onToggleNoMed={(v) => setNoteField("no_medication", v)}
+                  onUpdate={updateRx}
+                  onAdd={addRx}
+                  onRemove={removeRx}
+                  onBlur={flushSave}
+                />
+              </TabsContent>
+
+              <TabsContent value="summary">
                 {summary ? (
-                  <p className="whitespace-pre-wrap text-sm text-slate-700">
-                    {summary}
-                  </p>
+                  <p className="whitespace-pre-wrap text-sm">{summary}</p>
                 ) : (
-                  <p className="text-sm text-slate-400">
+                  <p className="text-sm text-muted-foreground">
                     The patient visit summary is still being generated.
                   </p>
                 )}
-              </div>
-            )}
+              </TabsContent>
+            </Tabs>
           </CardBody>
         </Card>
       </div>
@@ -387,10 +484,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
-      </label>
+      </Label>
       {children}
     </div>
   );
@@ -508,10 +605,10 @@ function RxTable({
   ];
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
         <input
           type="checkbox"
-          className="h-4 w-4"
+          className="size-4 accent-[hsl(var(--primary))]"
           checked={noMedication}
           onChange={(e) => onToggleNoMed(e.target.checked)}
         />
@@ -522,21 +619,21 @@ function RxTable({
         <>
           <div className="space-y-3">
             {prescriptions.length === 0 && (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-muted-foreground">
                 No prescriptions. Add one below.
               </p>
             )}
             {prescriptions.map((r, i) => (
               <div
                 key={i}
-                className="space-y-2 rounded-md border border-slate-100 p-2"
+                className="space-y-2 rounded-md border border-border p-3"
               >
                 <div className="grid grid-cols-2 gap-2">
                   {cols.map(([key, label]) => (
                     <div key={key} className="space-y-1">
-                      <label className="text-[11px] uppercase text-slate-400">
+                      <Label className="text-[11px] uppercase text-muted-foreground">
                         {label}
-                      </label>
+                      </Label>
                       <Input
                         value={r[key] ?? ""}
                         onChange={(e) =>
@@ -553,9 +650,10 @@ function RxTable({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-red-600"
+                    className="text-destructive hover:bg-destructive/10"
                     onClick={() => onRemove(i)}
                   >
+                    <Trash2 className="size-4" />
                     Remove
                   </Button>
                 </div>
@@ -563,7 +661,8 @@ function RxTable({
             ))}
           </div>
           <Button size="sm" variant="secondary" onClick={onAdd}>
-            + Add medication
+            <Plus className="size-4" />
+            Add medication
           </Button>
         </>
       )}

@@ -15,6 +15,7 @@ import {
   scanPendingSessions,
   type SessionPending,
 } from "@/lib/recording/idb";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function CrashRecoveryBanner() {
@@ -118,25 +119,32 @@ export function CrashRecoveryBanner() {
   if (pending.length === 0 && !message) return null;
 
   return (
-    <div className="border-b border-amber-200 bg-amber-50">
+    <div className="border-b border-warning/30 bg-warning/10">
       <div className="mx-auto max-w-6xl space-y-3 px-4 py-3">
-        {message && <p className="text-sm text-amber-900">{message}</p>}
+        {message && (
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            {message}
+          </p>
+        )}
         {pending.map((p) => (
           <div
             key={p.sessionId}
             className="flex flex-wrap items-center justify-between gap-3 text-sm"
           >
-            <div className="text-amber-900">
-              Unsent recording found for session{" "}
-              <span className="font-mono">{p.sessionId.slice(0, 8)}</span> —{" "}
-              {p.pendingCount} of {p.totalCount} chunk
-              {p.totalCount > 1 ? "s" : ""} pending upload.
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>
+                Unsent recording found for session{" "}
+                <span className="font-mono">{p.sessionId.slice(0, 8)}</span> —{" "}
+                {p.pendingCount} of {p.totalCount} chunk
+                {p.totalCount > 1 ? "s" : ""} pending upload.
+              </span>
             </div>
             <div className="flex gap-2">
               <Button
                 size="sm"
                 onClick={() => resume(p.sessionId)}
-                disabled={busy === p.sessionId}
+                loading={busy === p.sessionId}
               >
                 {busy === p.sessionId ? "Resuming…" : "Resume"}
               </Button>

@@ -13,6 +13,7 @@ import "./lib/env.js"; // must be first — loads .env before any env reads
 import { Queue, Worker, type Job } from "bullmq";
 import {
   createASRProvider,
+  ASRPermanentError,
   type ASRProvider,
   type TranscribeOptions,
   type Turn,
@@ -25,7 +26,7 @@ import {
   SOAP_TOOL,
   PRESCRIPTION_TOOL,
   VISIT_SUMMARY_TOOL,
-  type AnthropicToolDef,
+  type LLMToolDef,
   SOAP_SYSTEM_PROMPT,
   PRESCRIPTION_SYSTEM_PROMPT,
   VISIT_SUMMARY_SYSTEM_PROMPT,
@@ -35,20 +36,20 @@ import {
 import type { ZodTypeAny } from "zod";
 import { connection } from "./lib/redis.js";
 import { supabase } from "./lib/supabase.js";
-import { getAnthropic, NOTE_MODEL } from "./lib/anthropic.js";
-import {
-  NoteFailedError,
-  ToolUseMissingError,
-  classifyAnthropicError,
-  extractToolUseInput,
-  assertNotTruncated,
-} from "./lib/toolCall.js";
+import { callGeminiTool, classifyGeminiError } from "./lib/gemini.js";
+import { NoteFailedError } from "./lib/toolCall.js";
 
 const AUDIO_BUCKET = "session-audio";
 const SIGNED_URL_TTL_SECONDS = 900; // 15 minutes
 
 // ─── Queues (producers) ───────────────────────────────────────────────────────
-const generateNoteQueue = new Queue("generate-note", { connection });
+// Transient failures (Gemini 429/5xx, ASR upstream blips) now propagate straight
+// through with no SDK-level auto-retry (the Anthropic SDK used to absorb these),
+// so BullMQ itself must retry — 3 attempts, exponential backoff from 5s.
+const generateNoteQueue = new Queue("generate-note", {
+  connection,
+  defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+});
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 function log(sessionId: string, msg: string): void {
@@ -145,68 +146,56 @@ function renderPlan(p: SOAPNote["plan"]): string {
 
 // ─── Generic validated tool-call loop (one retry on failure) ──────────────────
 /**
- * Calls Anthropic with a forced tool_use, validates the result against `schema`,
- * and retries ONCE on validation failure or a missing tool_use block.
+ * Calls Gemini forcing a function call, validates the result against `schema`,
+ * and retries ONCE on validation failure or a missing function call.
+ *
+ * Gemini has no server-side conversation state here, so the retry re-sends the
+ * original prompt with an appended correction rather than threading turns.
  *
  * Throws NoteFailedError on the non-retryable / exhausted paths. Re-throws other
- * (transient) Anthropic errors so BullMQ can retry the whole job.
+ * (transient) Gemini errors so BullMQ can retry the whole job.
  */
 async function generateValidated<T>(
   schema: ZodTypeAny,
   system: string,
-  tool: AnthropicToolDef,
+  tool: LLMToolDef,
   userMessage: string,
   label: string,
 ): Promise<T> {
-  // Mutable conversation we extend on retry.
-  const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [
-    { role: "user", content: userMessage },
-  ];
+  let prompt = userMessage;
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    let message;
+    let result;
     try {
-      message = await getAnthropic().messages.create({
-        model: NOTE_MODEL,
-        max_tokens: 2000,
-        system,
-        tools: [tool as any],
-        tool_choice: { type: "any" },
-        messages: messages as any,
-      });
+      result = await callGeminiTool({ system, tool, prompt });
     } catch (err) {
-      const failed = classifyAnthropicError(err);
+      const failed = classifyGeminiError(err);
       if (failed) throw failed;
       throw err; // transient / unexpected → BullMQ retry
     }
 
-    // NON-RETRYABLE: truncated output.
-    assertNotTruncated(message, label);
+    // Truncated output (cut off at maxOutputTokens) is never trustworthy, even
+    // when the SDK still managed to parse a (partial) function call — treat it
+    // the same as no call at all: non-retryable.
+    if (result.truncated) throw new NoteFailedError(`${label}_max_tokens`);
 
-    let input: unknown;
-    try {
-      input = extractToolUseInput(message);
-    } catch (err) {
-      if (!(err instanceof ToolUseMissingError)) throw err;
+    // No usable function call.
+    if (result.args == null) {
       if (attempt === 0) {
-        messages.push({ role: "assistant", content: message.content });
-        messages.push({
-          role: "user",
-          content:
-            "You did not call the provided tool. You must respond by calling the tool. Do not return free text.",
-        });
+        prompt =
+          `${userMessage}\n\nYou did not call the ${tool.name} function. ` +
+          "You MUST respond by calling it with all required fields. Do not return free text.";
         continue;
       }
       throw new NoteFailedError(`${label}_no_tool_use`);
     }
 
-    const parsed = schema.safeParse(input);
+    const parsed = schema.safeParse(result.args);
     if (parsed.success) return parsed.data as T;
 
     if (attempt === 0) {
       const formatted = JSON.stringify(parsed.error.format(), null, 2);
-      messages.push({ role: "assistant", content: message.content });
-      messages.push({ role: "user", content: buildRetryPrompt(formatted) });
+      prompt = `${userMessage}\n\n${buildRetryPrompt(formatted)}`;
       continue;
     }
 
@@ -310,6 +299,13 @@ function makeTranscribeProcessor(provider: ASRProvider) {
       const reason = err instanceof Error ? err.message : String(err);
       logError(sessionId, "transcribe-audio: failed", reason);
       await setFailure(sessionId, "transcription_failed", reason);
+      // ASRPermanentError means the ASR provider itself declared the input
+      // un-processable (bad format, auth, policy, duration limits, …) — retrying
+      // the same audio against the same provider will fail identically every
+      // time, so don't let BullMQ burn attempts/backoff on a deterministic
+      // failure. Anything else (DB hiccup, network blip, unexpected error) is
+      // rethrown so BullMQ can retry.
+      if (err instanceof ASRPermanentError) return;
       throw err; // let BullMQ record the failure
     }
   };

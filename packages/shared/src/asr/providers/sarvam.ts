@@ -1,19 +1,29 @@
 import { ASRProvider } from "../ASRProvider.js";
 import { ASRErrorCode, ASRPermanentError, ASRTransientError } from "../errors.js";
-import type { SpeakerLabel, TranscribeOptions, TranscriptResult, Turn } from "../types.js";
+import type { TranscribeOptions, TranscriptResult } from "../types.js";
+import {
+  aggregateTurns,
+  sarvamResponseToTurns,
+  toSarvamLanguageCode,
+  type SarvamResponse,
+} from "./sarvamShared.js";
 
 /**
- * Sarvam AI provider — Saarika speech-to-text (PRD §6.2.5).
+ * Sarvam AI provider — Saarika speech-to-text, real-time endpoint (PRD §6.2.5).
  *
  * Preferred for DPDP compliance and strong Hindi/Hinglish support, with native
  * Roman-script transliteration.
  *
- * NOTE (best-effort API shape): Sarvam's public STT endpoint expects a MULTIPART
- * file upload, not a remote URL. We therefore fetch the signed Supabase audio
- * bytes first and send them as the multipart `file` field. The exact field names
- * (`model`, `language_code`, `with_diarization`, `with_timestamps`) and response
- * structure follow the currently documented Saarika batch API and may need
- * adjustment against the live Sarvam docs.
+ * NOTE: Sarvam's public STT endpoint expects a MULTIPART file upload, not a
+ * remote URL. We therefore fetch the signed Supabase audio bytes first and
+ * send them as the multipart `file` field.
+ *
+ * `with_diarization` is intentionally NOT sent: the real-time /speech-to-text
+ * endpoint rejects it with 400 ("Diarization is not supported in the
+ * real-time API. Please use the batch API for diarization.") — confirmed
+ * against the live API. For real speaker separation use the `sarvam_batch`
+ * provider (`sarvamBatch.ts`) instead; this provider always returns a single
+ * "unknown"-speaker turn (see sarvamResponseToTurns' fallback).
  *
  * Endpoint: POST https://api.sarvam.ai/speech-to-text
  * Header:   api-subscription-key: <key>
@@ -71,15 +81,12 @@ export class SarvamASRProvider extends ASRProvider {
     }
 
     // 2) Build the multipart request.
-    // language_code: "hi-IN" for Hindi, "en-IN" for English, "unknown" for auto.
-    const languageCode =
-      options.language === "auto" ? "unknown" : options.language === "hi" ? "hi-IN" : "en-IN";
+    const languageCode = toSarvamLanguageCode(options.language);
 
     const form = new FormData();
     form.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "audio.webm");
-    form.append("model", "saarika:v2");
+    form.append("model", "saarika:v2.5");
     form.append("language_code", languageCode);
-    form.append("with_diarization", "true");
     form.append("with_timestamps", "true");
     // "roman" script output requested via transliteration where supported.
     if (options.scriptOutput === "roman") {
@@ -106,7 +113,12 @@ export class SarvamASRProvider extends ASRProvider {
       throw new ASRPermanentError(`Auth failure (${res.status})`, ASRErrorCode.AUTH_FAILURE, this.getName());
     }
     if (res.status === 400 || res.status === 415 || res.status === 422) {
-      throw new ASRPermanentError(`Invalid audio (${res.status})`, ASRErrorCode.INVALID_AUDIO, this.getName());
+      const body = await res.text().catch(() => "");
+      throw new ASRPermanentError(
+        `Invalid audio (${res.status}): ${body.slice(0, 500)}`,
+        ASRErrorCode.INVALID_AUDIO,
+        this.getName(),
+      );
     }
     if (res.status === 429) {
       throw new ASRTransientError("Rate limited", ASRErrorCode.RATE_LIMIT, this.getName());
@@ -115,40 +127,13 @@ export class SarvamASRProvider extends ASRProvider {
       throw new ASRTransientError(`Upstream ${res.status}`, ASRErrorCode.UNKNOWN, this.getName());
     }
     if (!res.ok) {
-      throw new ASRTransientError(`Unexpected ${res.status}`, ASRErrorCode.UNKNOWN, this.getName());
+      const body = await res.text().catch(() => "");
+      throw new ASRTransientError(`Unexpected ${res.status}: ${body.slice(0, 500)}`, ASRErrorCode.UNKNOWN, this.getName());
     }
 
     const raw = (await res.json()) as SarvamResponse;
-
-    // 3) Map diarized segments → turns. If diarization is absent, emit a single
-    //    "unknown" turn covering the full transcript.
-    let turns: Turn[];
-    const segments = raw.diarized_transcript?.entries ?? raw.segments;
-    if (segments && segments.length > 0) {
-      turns = segments.map((seg) => ({
-        speaker: normaliseSpeaker(seg.speaker_id ?? seg.speaker),
-        startMs: Math.round((seg.start_time_seconds ?? seg.start ?? 0) * 1000),
-        endMs: Math.round((seg.end_time_seconds ?? seg.end ?? 0) * 1000),
-        text: seg.transcript ?? seg.text ?? "",
-        confidence: seg.confidence ?? 0.7,
-      }));
-    } else {
-      turns = [
-        {
-          speaker: "unknown",
-          startMs: 0,
-          endMs: 0,
-          text: raw.transcript ?? "",
-          confidence: 0.7,
-        },
-      ];
-    }
-
-    const durationMs = turns.at(-1)?.endMs ?? 0;
-    const overallConfidence = turns.length
-      ? turns.reduce((a, t) => a + t.confidence * Math.max(1, t.endMs - t.startMs), 0) /
-        turns.reduce((a, t) => a + Math.max(1, t.endMs - t.startMs), 0)
-      : 0;
+    const turns = sarvamResponseToTurns(raw);
+    const { durationMs, overallConfidence } = aggregateTurns(turns);
 
     return {
       turns,
@@ -160,47 +145,4 @@ export class SarvamASRProvider extends ASRProvider {
       rawProviderResponse: raw,
     };
   }
-}
-
-/**
- * Sarvam speaker ids may be strings ("speaker_0") or integers. First distinct
- * speaker → doctor, second → patient, third → other, else unknown.
- */
-function normaliseSpeaker(s: string | number | undefined): SpeakerLabel {
-  const key = String(s ?? "").toLowerCase();
-  switch (key) {
-    case "0":
-    case "speaker_0":
-    case "spk_0":
-      return "doctor";
-    case "1":
-    case "speaker_1":
-    case "spk_1":
-      return "patient";
-    case "2":
-    case "speaker_2":
-    case "spk_2":
-      return "other";
-    default:
-      return "unknown";
-  }
-}
-
-interface SarvamSegment {
-  speaker_id?: string | number;
-  speaker?: string | number;
-  start_time_seconds?: number;
-  end_time_seconds?: number;
-  start?: number;
-  end?: number;
-  transcript?: string;
-  text?: string;
-  confidence?: number;
-}
-
-interface SarvamResponse {
-  transcript?: string;
-  language_code?: string;
-  segments?: SarvamSegment[];
-  diarized_transcript?: { entries?: SarvamSegment[] };
 }

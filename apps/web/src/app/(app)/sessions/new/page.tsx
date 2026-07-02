@@ -1,15 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import {
-  CONSENT_TEXT_EN,
-  CONSENT_TEXT_HI,
-} from "@gooqi/shared";
+import { Check, ShieldCheck, User } from "lucide-react";
+import { CONSENT_TEXT_EN, CONSENT_TEXT_HI } from "@gooqi/shared/db";
 import { useApi } from "@/lib/api";
 import type { CreateSessionResponse } from "@/lib/api-types";
+import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { RecordingPanel } from "@/components/recording/RecordingPanel";
 
 type Step = 1 | 2 | 3;
@@ -55,33 +60,37 @@ export default function NewSessionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-xl font-semibold text-slate-900">New Session</h1>
+    <div className="mx-auto max-w-2xl space-y-6 animate-fade-in">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">New Session</h1>
+        <p className="text-sm text-muted-foreground">
+          Capture consent, then record the consultation.
+        </p>
+      </div>
 
       <Stepper step={step} />
 
       {step === 1 && (
         <Card>
-          <CardHeader>
-            <h2 className="font-medium text-slate-900">Patient details</h2>
+          <CardHeader className="flex flex-row items-center gap-2">
+            <User className="size-4 text-primary" />
+            <CardTitle>Patient details</CardTitle>
           </CardHeader>
           <CardBody className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-slate-700">
-                Patient name
-              </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-name">Patient name</Label>
               <Input
+                id="pt-name"
                 autoFocus
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Full name"
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-slate-700">
-                Phone (optional)
-              </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-phone">Phone (optional)</Label>
               <Input
+                id="pt-phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="Mobile number"
@@ -104,18 +113,22 @@ export default function NewSessionPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <h2 className="font-medium text-slate-900">Consent</h2>
-              <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="size-4 text-primary" />
+                Consent
+              </CardTitle>
+              <div className="flex overflow-hidden rounded-md border border-border text-sm">
                 {(["en", "hi"] as Lang[]).map((l) => (
                   <button
                     key={l}
                     type="button"
                     onClick={() => setLanguage(l)}
-                    className={
+                    className={cn(
+                      "px-3 py-1 transition-colors",
                       language === l
-                        ? "bg-brand px-3 py-1 text-white"
-                        : "bg-white px-3 py-1 text-slate-600"
-                    }
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card text-muted-foreground hover:bg-muted",
+                    )}
                   >
                     {l === "en" ? "English" : "हिन्दी"}
                   </button>
@@ -124,14 +137,14 @@ export default function NewSessionPage() {
             </div>
           </CardHeader>
           <CardBody className="space-y-4">
-            <p className="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p className="rounded-md border border-border bg-muted/50 px-4 py-3 text-sm">
               {language === "en" ? CONSENT_TEXT_EN : CONSENT_TEXT_HI}
             </p>
 
-            <label className="flex items-start gap-3 text-sm text-slate-700">
+            <label className="flex items-start gap-3 rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted/50">
               <input
                 type="checkbox"
-                className="mt-0.5 h-4 w-4"
+                className="mt-0.5 size-4 accent-[hsl(var(--primary))]"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
               />
@@ -141,7 +154,11 @@ export default function NewSessionPage() {
               </span>
             </label>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
 
             <div className="flex justify-between">
               <Button variant="secondary" onClick={() => setStep(1)}>
@@ -149,7 +166,8 @@ export default function NewSessionPage() {
               </Button>
               <Button
                 onClick={confirmAndStart}
-                disabled={!agreed || submitting}
+                disabled={!agreed}
+                loading={submitting}
               >
                 {submitting ? "Starting…" : "Confirm & Start Recording"}
               </Button>
@@ -158,9 +176,7 @@ export default function NewSessionPage() {
         </Card>
       )}
 
-      {step === 3 && sessionId && (
-        <RecordingPanel sessionId={sessionId} />
-      )}
+      {step === 3 && sessionId && <RecordingPanel sessionId={sessionId} />}
     </div>
   );
 }
@@ -168,29 +184,40 @@ export default function NewSessionPage() {
 function Stepper({ step }: { step: Step }) {
   const labels = ["Patient", "Consent", "Recording"];
   return (
-    <ol className="flex items-center gap-2 text-sm">
+    <ol className="flex items-center">
       {labels.map((label, i) => {
         const n = (i + 1) as Step;
         const active = n === step;
         const done = n < step;
         return (
-          <li key={label} className="flex items-center gap-2">
-            <span
-              className={
-                active
-                  ? "flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs text-white"
-                  : done
-                    ? "flex h-6 w-6 items-center justify-center rounded-full bg-green-500 text-xs text-white"
-                    : "flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs text-slate-500"
-              }
-            >
-              {n}
-            </span>
-            <span className={active ? "font-medium text-slate-900" : "text-slate-500"}>
-              {label}
-            </span>
+          <li key={label} className="flex flex-1 items-center last:flex-none">
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                  active && "bg-primary text-primary-foreground",
+                  done && "bg-success text-success-foreground",
+                  !active && !done && "bg-muted text-muted-foreground",
+                )}
+              >
+                {done ? <Check className="size-4" /> : n}
+              </span>
+              <span
+                className={cn(
+                  "text-sm",
+                  active ? "font-medium text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {label}
+              </span>
+            </div>
             {i < labels.length - 1 && (
-              <span className="mx-1 h-px w-6 bg-slate-300" />
+              <span
+                className={cn(
+                  "mx-3 h-px flex-1 transition-colors",
+                  done ? "bg-success" : "bg-border",
+                )}
+              />
             )}
           </li>
         );

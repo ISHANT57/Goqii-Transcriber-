@@ -13,6 +13,19 @@ import IORedis, { type Redis } from "ioredis";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 
+/**
+ * Transient failures (ASR upstream 5xx/rate-limit, Gemini 429/5xx, blips in the
+ * Supabase call path) are common and previously got silently absorbed by the
+ * Anthropic SDK's built-in retry; now that the worker throws them straight
+ * through, BullMQ must retry the job itself instead of failing on one attempt.
+ * Non-retryable failures (NoteFailedError, ASRPermanentError) are already
+ * handled inside the worker without rethrowing, so they are unaffected by this.
+ */
+const DEFAULT_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5000 },
+};
+
 let connection: Redis | null = null;
 let transcribeQueue: Queue | null = null;
 let generateNoteQueue: Queue | null = null;
@@ -20,8 +33,14 @@ let generateNoteQueue: Queue | null = null;
 function getConnection(): Redis {
   if (!connection) {
     connection = new IORedis(REDIS_URL, {
-      // BullMQ requirement for blocking commands.
-      maxRetriesPerRequest: null,
+      // Unlike the worker's connection (apps/worker/src/lib/redis.ts), this one
+      // is producer-only — no blocking commands, so it does NOT need
+      // `maxRetriesPerRequest: null`. That setting means a command retries
+      // forever while Redis is unreachable, so `await queue.add(...)` would
+      // never resolve or reject — hanging the HTTP request indefinitely
+      // instead of the "enqueue failures are surfaced to the caller" behavior
+      // this file documents. A finite value lets the command fail fast.
+      maxRetriesPerRequest: 3,
       // Lazy: don't connect until first command, so the API can boot if Redis is down.
       lazyConnect: true,
       enableOfflineQueue: true,
@@ -38,6 +57,7 @@ export function getTranscribeQueue(): Queue {
   if (!transcribeQueue) {
     transcribeQueue = new Queue("transcribe-audio", {
       connection: getConnection(),
+      defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
   }
   return transcribeQueue;
@@ -48,6 +68,7 @@ export function getGenerateNoteQueue(): Queue {
   if (!generateNoteQueue) {
     generateNoteQueue = new Queue("generate-note", {
       connection: getConnection(),
+      defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
   }
   return generateNoteQueue;

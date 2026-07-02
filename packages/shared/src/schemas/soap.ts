@@ -24,9 +24,17 @@ export const PrescriptionListZod = z.object({
 export type PrescriptionList = z.infer<typeof PrescriptionListZod>;
 
 export const SOAPNoteZod = z.object({
-  chief_complaint: z.string().min(1),
+  // These four are grounding-critical but nullable: a transcript with no
+  // identifiable clinical content (garbled ASR, non-medical audio) has no
+  // truthful non-empty value to put here. Forcing z.string().min(1) left the
+  // model no valid way to comply with both "return null when absent" and a
+  // non-nullable, non-empty schema — it resolved the conflict by emitting the
+  // literal string "null" or fabricating content from unrelated transcript
+  // text. Null must flow through so callers can render/gate on "no content
+  // found" explicitly instead of a garbage placeholder.
+  chief_complaint: z.string().min(1).nullable(),
   subjective: z.object({
-    history_of_present_illness: z.string().min(1),
+    history_of_present_illness: z.string().min(1).nullable(),
     past_medical_history: z.string().nullable(),
     medications_reported_by_patient: z.string().nullable(),
     allergies: z.string().nullable(),
@@ -39,12 +47,12 @@ export const SOAPNoteZod = z.object({
     investigations_reported: z.string().nullable(),
   }),
   assessment: z.object({
-    primary_diagnosis: z.string().min(1),
+    primary_diagnosis: z.string().min(1).nullable(),
     differential_diagnoses: z.array(z.string()).nullable(),
     clinical_impression: z.string().nullable(),
   }),
   plan: z.object({
-    treatment_plan: z.string().min(1),
+    treatment_plan: z.string().min(1).nullable(),
     prescriptions_raw: z.string().nullable(),
     referrals: z.string().nullable(),
     patient_education: z.string().nullable(),

@@ -1,6 +1,6 @@
 "use client";
 
-import { get, set, del, keys } from "idb-keyval";
+import { get, set, del, update, keys } from "idb-keyval";
 
 /**
  * Typed IndexedDB wrappers (over idb-keyval) for crash-safe audio chunk
@@ -26,12 +26,16 @@ const indexKey = (sessionId: string) => `session:${sessionId}:chunks`;
 /** Persist a chunk and append its index to the session's chunk list. */
 export async function saveChunk(chunk: StoredChunk): Promise<void> {
   await set(chunkKey(chunk.sessionId, chunk.chunkIndex), chunk);
-  const list = (await get<number[]>(indexKey(chunk.sessionId))) ?? [];
-  if (!list.includes(chunk.chunkIndex)) {
-    list.push(chunk.chunkIndex);
-    list.sort((a, b) => a - b);
-    await set(indexKey(chunk.sessionId), list);
-  }
+  // `update` runs the read-modify-write inside a single IndexedDB transaction,
+  // so two overlapping saveChunk calls (e.g. delayed `dataavailable` events
+  // under tab throttling) can't both read the old list and clobber each
+  // other's append — a plain get()+set() here could silently drop an index and
+  // orphan its chunk from upload / crash-recovery.
+  await update<number[]>(indexKey(chunk.sessionId), (prev) => {
+    const list = prev ?? [];
+    if (list.includes(chunk.chunkIndex)) return list;
+    return [...list, chunk.chunkIndex].sort((a, b) => a - b);
+  });
 }
 
 /** Mark a set of chunk indices as uploaded (e.g. from server acknowledgement). */

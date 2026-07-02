@@ -1,12 +1,15 @@
 /**
- * Anthropic tool_use definitions for the two-call note-generation architecture
- * (PRD §6.3.3). JSON Schemas mirror the Zod schemas in ../schemas/soap.ts.
+ * Provider-neutral tool/function-call definitions for the two-call
+ * note-generation architecture (PRD §6.3.3). JSON Schemas mirror the Zod
+ * schemas in ../schemas/soap.ts, written in Anthropic `tool_use` dialect;
+ * callers translate to their provider's schema dialect at call time (e.g.
+ * `toGeminiSchema` in apps/worker/src/lib/gemini.ts).
  *
  * Typed loosely as `unknown`-friendly objects so this package does not need a
- * hard dependency on the Anthropic SDK; the worker casts them to Anthropic.Tool.
+ * hard dependency on any single LLM provider's SDK.
  */
 
-export interface AnthropicToolDef {
+export interface LLMToolDef {
   name: string;
   description: string;
   input_schema: Record<string, unknown>;
@@ -14,7 +17,7 @@ export interface AnthropicToolDef {
 
 const nullableString = { type: ["string", "null"] } as const;
 
-export const SOAP_TOOL: AnthropicToolDef = {
+export const SOAP_TOOL: LLMToolDef = {
   name: "generate_soap_note",
   description:
     "Generate a structured SOAP clinical note from the provided transcript. " +
@@ -23,11 +26,11 @@ export const SOAP_TOOL: AnthropicToolDef = {
   input_schema: {
     type: "object",
     properties: {
-      chief_complaint: { type: "string" },
+      chief_complaint: nullableString,
       subjective: {
         type: "object",
         properties: {
-          history_of_present_illness: { type: "string" },
+          history_of_present_illness: nullableString,
           past_medical_history: nullableString,
           medications_reported_by_patient: nullableString,
           allergies: nullableString,
@@ -61,7 +64,7 @@ export const SOAP_TOOL: AnthropicToolDef = {
       assessment: {
         type: "object",
         properties: {
-          primary_diagnosis: { type: "string" },
+          primary_diagnosis: nullableString,
           differential_diagnoses: {
             type: ["array", "null"],
             items: { type: "string" },
@@ -74,7 +77,7 @@ export const SOAP_TOOL: AnthropicToolDef = {
       plan: {
         type: "object",
         properties: {
-          treatment_plan: { type: "string" },
+          treatment_plan: nullableString,
           prescriptions_raw: nullableString,
           referrals: nullableString,
           patient_education: nullableString,
@@ -105,7 +108,7 @@ export const SOAP_TOOL: AnthropicToolDef = {
   },
 };
 
-export const PRESCRIPTION_TOOL: AnthropicToolDef = {
+export const PRESCRIPTION_TOOL: LLMToolDef = {
   name: "extract_prescriptions",
   description:
     "Extract all prescriptions from the provided plan text. " +
@@ -147,7 +150,7 @@ export const PRESCRIPTION_TOOL: AnthropicToolDef = {
   },
 };
 
-export const VISIT_SUMMARY_TOOL: AnthropicToolDef = {
+export const VISIT_SUMMARY_TOOL: LLMToolDef = {
   name: "generate_visit_summary",
   description:
     "Generate a plain-language visit summary for the patient from the finalised " +

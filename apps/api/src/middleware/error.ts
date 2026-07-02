@@ -2,6 +2,7 @@
  * Async handler wrapper + central error middleware.
  */
 import type { NextFunction, Request, Response, RequestHandler } from "express";
+import { MulterError } from "multer";
 
 /** A typed HTTP error carrying a status code and optional extra payload. */
 export class HttpError extends Error {
@@ -34,7 +35,16 @@ export function errorMiddleware(
     res.status(err.status).json({ error: err.message, ...(err.extra ?? {}) });
     return;
   }
-  const message = err instanceof Error ? err.message : "Internal server error";
+  if (err instanceof MulterError) {
+    console.error("[error] upload rejected:", err.code, err.message);
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    res.status(status).json({ error: `Upload rejected: ${err.message}` });
+    return;
+  }
+  // Any other error (DB failure, unexpected exception, ...) is logged in full
+  // server-side, but the client only ever sees a generic message — the raw
+  // error can otherwise leak internal details (table/column names, library
+  // internals) to any authenticated caller, which matters for a PHI-handling API.
   console.error("[error]", err);
-  res.status(500).json({ error: message });
+  res.status(500).json({ error: "Internal server error" });
 }

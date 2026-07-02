@@ -15,7 +15,14 @@ Hallucination prevention rules — these are absolute constraints:
    Only reflect what the doctor and patient said.
 5. chief_complaint and primary_diagnosis must be direct quotes or minimal
    paraphrases grounded in the transcript. Do not produce ICD codes unless
-   the doctor stated one explicitly.`;
+   the doctor stated one explicitly.
+6. If the transcript contains no identifiable doctor-patient clinical
+   consultation at all (e.g. it is silence, unrelated conversation, narration,
+   or otherwise not a medical visit), return null for chief_complaint,
+   history_of_present_illness, primary_diagnosis, and treatment_plan — do NOT
+   invent a plausible-sounding value, and do NOT reuse an unrelated sentence
+   from the transcript just to fill the field. Never write the word "null" (or
+   any placeholder text) as a string value — use an actual null.`;
 
 export const SOAP_SYSTEM_PROMPT = HALLUCINATION_GUARD;
 

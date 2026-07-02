@@ -6,5 +6,7 @@ export { MockASRProvider } from "./providers/mock.js";
 export { FasterWhisperASRProvider } from "./providers/fasterwhisper.js";
 export { AssemblyAIASRProvider } from "./providers/assemblyai.js";
 export { SarvamASRProvider } from "./providers/sarvam.js";
+export { SarvamBatchASRProvider } from "./providers/sarvamBatch.js";
 export { DeepgramASRProvider } from "./providers/deepgram.js";
 export { GoogleChirpASRProvider } from "./providers/googlechirp.js";
+export { GoqiiVertexASRProvider } from "./providers/goqiivertex.js";

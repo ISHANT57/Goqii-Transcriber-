@@ -26,7 +26,10 @@ export const sessionsRouter = Router();
 // Every route below requires authentication.
 sessionsRouter.use(requireAuth);
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Chunks are ~30s of 32kbps audio (~120KB); 10MB is generous headroom while
+// still bounding worst-case per-request memory use (memoryStorage buffers the
+// whole upload in the process before the handler runs).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 /** Fetch a session and assert it is owned by the authenticated doctor (else 404). */
 async function getOwnedSession(req: Request, sessionId: string): Promise<Session> {
@@ -151,7 +154,7 @@ sessionsRouter.get(
     const doctorId = req.doctorId!;
     const { data: sessions, error } = await supabase
       .from("sessions")
-      .select("*, patient:patients(name)")
+      .select("*, patient:patients(name, phone)")
       .eq("doctor_id", doctorId)
       .order("created_at", { ascending: false });
 
@@ -172,10 +175,11 @@ sessionsRouter.get(
           .limit(1)
           .maybeSingle();
 
-        const patient = s.patient as { name?: string } | null;
+        const patient = s.patient as { name?: string; phone?: string } | null;
         return {
           ...s,
           patient_name: patient?.name ?? null,
+          patient_phone: patient?.phone ?? null,
           chief_complaint: note?.chief_complaint ?? null,
           primary_diagnosis: note?.primary_diagnosis ?? null,
         };
@@ -411,7 +415,7 @@ sessionsRouter.get(
     const session = await getOwnedSession(req, req.params.id!);
     const { data, error } = await supabase
       .from("transcripts")
-      .select("*")
+      .select("turns, language_detected, overall_confidence")
       .eq("session_id", session.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -527,10 +531,10 @@ sessionsRouter.get(
     const prescriptions = await getPrescriptionsForNote(note.id as string);
 
     // Visit summary is optional and may not exist in every environment.
-    let summary = null;
+    let summary: string | null = null;
     const { data: summaryRow, error: sumErr } = await supabase
       .from("visit_summaries")
-      .select("*")
+      .select("content")
       .eq("session_id", session.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -538,7 +542,7 @@ sessionsRouter.get(
     if (sumErr) {
       console.warn("[sessions] visit_summaries read failed:", sumErr.message);
     } else {
-      summary = summaryRow ?? null;
+      summary = summaryRow?.content ?? null;
     }
 
     res.json({ note, prescriptions, summary });
@@ -669,7 +673,7 @@ sessionsRouter.post(
       throw new HttpError(500, `Failed to finalise session: ${sErr.message}`);
     }
 
-    // Enqueue visit-summary generation (worker handles Anthropic call).
+    // Enqueue visit-summary generation (worker handles the Gemini call).
     try {
       await enqueueSummary(session.id);
     } catch (err) {

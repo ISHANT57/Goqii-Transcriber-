@@ -1,7 +1,7 @@
 # Supabase CLI config for the Gooqi medical transcriber.
 # Docs: https://supabase.com/docs/guides/cli/config
 
-project_id = "gooqi-medical-transcriber"
+project_id = "giokilhxwatscmjcidwl"
 
 [api]
 enabled = true

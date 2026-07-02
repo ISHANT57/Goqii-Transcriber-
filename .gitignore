@@ -37,3 +37,6 @@ supabase/.temp
 # local runtime artifacts
 .logs/
 dump.rdb
+
+# large local test assets (not source) — use Git LFS if these must be shared
+mockaudios/

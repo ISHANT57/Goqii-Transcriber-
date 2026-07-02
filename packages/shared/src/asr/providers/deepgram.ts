@@ -10,6 +10,11 @@ import type { SpeakerLabel, TranscribeOptions, TranscriptResult, Turn } from "..
  *   Body: { url: <remote audio url> }  (Deepgram fetches the signed Supabase URL).
  *
  * Env: DEEPGRAM_API_KEY.
+ *
+ * NOTE: Deepgram has no Roman-transliteration output option (unlike Sarvam) —
+ * `options.scriptOutput` is NOT honored. Hindi speech comes back in whatever
+ * script Deepgram's Nova-2 model natively emits (typically Devanagari), even
+ * though the app's LLM note-generation prompts assume Roman-script input.
  */
 const DEEPGRAM_LISTEN = "https://api.deepgram.com/v1/listen";
 const DEEPGRAM_PROJECTS = "https://api.deepgram.com/v1/projects";
@@ -36,7 +41,12 @@ export class DeepgramASRProvider extends ASRProvider {
       });
       return res.ok;
     } catch {
-      return !!this.apiKey;
+      // A network failure here (DNS, timeout, firewall) means Deepgram is not
+      // actually reachable — `this.apiKey` is already known truthy at this
+      // point, so returning it unconditionally always reported "healthy"
+      // regardless of connectivity, masking a real outage until the first
+      // production transcription job failed.
+      return false;
     }
   }
 

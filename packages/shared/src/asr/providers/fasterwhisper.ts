@@ -81,7 +81,7 @@ export class FasterWhisperASRProvider extends ASRProvider {
         this.getName(),
       );
     }
-    if (res.status === 415 || res.status === 422) {
+    if (res.status === 400 || res.status === 415 || res.status === 422) {
       throw new ASRPermanentError(
         `Invalid audio (${res.status})`,
         ASRErrorCode.INVALID_AUDIO,

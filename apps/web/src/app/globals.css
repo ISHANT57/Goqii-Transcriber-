@@ -2,21 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+/* ---------------------------------------------------------------------------
+ * Design tokens — HSL channels consumed by tailwind.config.ts via hsl(var(--x)).
+ * Light + dark themes. Brand is a clinical teal; semantic colors for status.
+ * ------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 175 78% 26%; /* teal #0f766e */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 175 60% 94%;
+    --accent-foreground: 175 78% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 175 78% 26%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 44% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 44% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 172 66% 45%; /* brighter teal for dark bg */
+    --primary-foreground: 222 47% 7%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 175 40% 18%;
+    --accent-foreground: 172 66% 70%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 47% 7%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 22%;
+    --ring: 172 66% 45%;
+  }
 }
 
-html,
-body {
-  background: var(--background);
-  color: var(--foreground);
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Thin, themed scrollbars */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
  * Print stylesheet — A5 visit summary only.
- * Everything is hidden by default when printing; only the element flagged with
- * `data-print-area` (the patient visit summary) is shown.
  * ------------------------------------------------------------------------- */
 @media print {
   @page {
@@ -24,32 +124,32 @@ body {
     margin: 12mm;
   }
 
+  html,
   body {
     background: #fff !important;
     color: #000 !important;
+    height: auto !important;
   }
 
-  /* Hide everything... */
-  body * {
-    visibility: hidden;
-  }
-
-  /* ...then reveal the print area and its descendants. */
-  [data-print-area],
-  [data-print-area] * {
-    visibility: visible;
-  }
-
-  [data-print-area] {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding: 0;
-    margin: 0;
-  }
-
+  /* Hide anything explicitly marked, plus the standard app chrome. */
   .no-print {
     display: none !important;
+  }
+
+  /* The flagged summary is the only thing that prints. Force black-on-white so
+     it stays legible in dark mode and doesn't waste ink on theme backgrounds. */
+  [data-print-area] {
+    background: #fff !important;
+    color: #000 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  [data-print-area] * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #d1d5db !important;
   }
 }

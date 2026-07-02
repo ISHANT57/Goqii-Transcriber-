@@ -10,6 +10,16 @@ import { supabase } from "../lib/supabase.js";
 import { asyncHandler, HttpError } from "./error.js";
 
 /**
+ * Auth user ids for which we've already ensured a doctors row this process
+ * lifetime. The row is insert-once and never deleted out from under us, so once
+ * ensured it stays ensured — caching lets us skip a DB round-trip on every
+ * subsequent authenticated request (including hot paths like chunk uploads and
+ * 4s status polling). Bounded by the number of distinct doctors; cleared on
+ * restart, which harmlessly re-ensures once per doctor.
+ */
+const ensuredDoctors = new Set<string>();
+
+/**
  * Ensure a doctors row exists for this auth user.
  * Name is derived from user metadata (full_name/name) or the email local-part.
  */
@@ -18,6 +28,8 @@ export async function ensureDoctor(
   email: string | undefined,
   metadata: Record<string, unknown> | undefined,
 ): Promise<void> {
+  if (ensuredDoctors.has(userId)) return;
+
   const metaName =
     (metadata?.full_name as string | undefined) ??
     (metadata?.name as string | undefined);
@@ -32,6 +44,8 @@ export async function ensureDoctor(
   if (error) {
     throw new HttpError(500, `Failed to ensure doctor record: ${error.message}`);
   }
+
+  ensuredDoctors.add(userId);
 }
 
 export const requireAuth = asyncHandler(

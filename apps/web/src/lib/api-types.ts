@@ -6,10 +6,32 @@
  * assumptions were made (documented in the app handover notes).
  */
 import type {
+  Patient,
   Session,
   SessionStatus,
   Turn,
 } from "@gooqi/shared";
+
+/** A row in GET /api/patients — patient plus visit aggregates. */
+export interface PatientListItem extends Patient {
+  session_count: number;
+  last_visit_at: string | null;
+}
+
+/** A row in GET /api/patients/:id/sessions — session + latest-note summary. */
+export interface PatientSessionItem extends Session {
+  chief_complaint: string | null;
+  primary_diagnosis: string | null;
+}
+
+/** GET/PATCH /api/doctor/me — the authenticated doctor's profile. */
+export interface DoctorProfile {
+  id: string;
+  name: string;
+  registration_number: string | null;
+  clinic_name: string | null;
+  created_at: string;
+}
 
 /** A row in the GET /api/sessions list — session joined with patient + note summary. */
 export interface SessionListItem {

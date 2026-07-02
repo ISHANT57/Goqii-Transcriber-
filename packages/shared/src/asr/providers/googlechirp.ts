@@ -16,6 +16,11 @@ import type { SpeakerLabel, TranscribeOptions, TranscriptResult, Turn } from "..
  *
  * TODO: For audio longer than ~1 minute, upload the bytes to a temporary GCS
  * bucket and switch to `batchRecognize` with a `gcsUri`, then poll the LRO.
+ *
+ * NOTE: Google Speech-to-Text has no Roman-transliteration output option
+ * (unlike Sarvam) — `options.scriptOutput` is NOT honored. Hindi speech comes
+ * back in whatever script the Chirp model natively emits (Devanagari), even
+ * though the app's LLM note-generation prompts assume Roman-script input.
  */
 
 // Lazy dynamic import so the heavy SDK is only loaded when this provider runs,
@@ -34,7 +39,13 @@ export class GoogleChirpASRProvider extends ASRProvider {
   async getHealthCheck(): Promise<boolean> {
     if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) return false;
     try {
-      await this.getClient();
+      const client = await this.getClient();
+      // Constructing SpeechClient only parses the credentials file — it does
+      // not contact Google, so a bad/expired service account still "succeeds"
+      // here and only surfaces on the first real recognize() call. Fetching
+      // an access token is the standard cheap way to actually authenticate
+      // against the credential without making a billable Speech API call.
+      await client.auth.getAccessToken();
       return true;
     } catch {
       return false;

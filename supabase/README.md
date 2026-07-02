@@ -2,8 +2,8 @@
 
 Postgres schema, RLS policies, and storage for the Gooqi clinical transcription app.
 
-- **Project ref:** `fonqoevalbdpamsefgfu`
-- **Project URL:** `https://fonqoevalbdpamsefgfu.supabase.co`
+- **Project ref:** `giokilhxwatscmjcidwl`
+- **Project URL:** `https://giokilhxwatscmjcidwl.supabase.co`
 - **Auth:** Supabase Auth (email OTP). `doctors.id` references `auth.users(id)`.
 - **Storage:** private bucket `session-audio`.
 
@@ -37,7 +37,7 @@ before the children that reference them via foreign keys.
 
 ```bash
 # From this directory (supabase/) or the monorepo root.
-supabase link --project-ref fonqoevalbdpamsefgfu
+supabase link --project-ref giokilhxwatscmjcidwl
 supabase db push
 ```
 

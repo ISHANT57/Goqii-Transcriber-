@@ -13,6 +13,11 @@ import type { SpeakerLabel, TranscribeOptions, TranscriptResult, Turn } from "..
  * Supabase URL), so no byte upload is required.
  *
  * Env: ASSEMBLYAI_API_KEY.
+ *
+ * NOTE: AssemblyAI has no Roman-transliteration output option (unlike
+ * Sarvam) — `options.scriptOutput` is NOT honored. Hindi speech comes back in
+ * whatever script AssemblyAI natively emits, even though the app's LLM
+ * note-generation prompts assume Roman-script input.
  */
 const ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2";
 const POLL_INTERVAL_MS = 3_000;

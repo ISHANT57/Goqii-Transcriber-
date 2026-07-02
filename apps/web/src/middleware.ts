@@ -37,6 +37,7 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublic =
+    pathname === "/" ||
     pathname === "/login" ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/_next");

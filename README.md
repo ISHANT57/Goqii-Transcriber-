@@ -20,7 +20,7 @@ supabase/   SQL migrations, RLS, storage bucket, combined ALL_MIGRATIONS.sql
 
 - Node ≥ 20, pnpm ≥ 11
 - A Supabase project (free tier is fine)
-- An Anthropic API key (for note generation)
+- A Gemini API key (for note generation)
 - A Redis instance (e.g. Upstash free tier) for the BullMQ job queue
 
 ## 1. Install
@@ -38,8 +38,8 @@ Copy `.env.example` → `.env` and fill in:
 | `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` | all | `https://<ref>.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | web | Supabase → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | api, worker | server-only; never expose to the browser |
-| `ANTHROPIC_API_KEY` | worker | required for SOAP note generation |
-| `ASR_PROVIDER` | worker | `mock` for local dev; `sarvam`/`deepgram`/`assemblyai`/`google_chirp`/`faster_whisper` in prod |
+| `GEMINI_API_KEY` | worker | required for SOAP note generation (Google Gemini) |
+| `ASR_PROVIDER` | worker | `mock` for local dev; `sarvam`/`sarvam_batch`/`deepgram`/`assemblyai`/`google_chirp`/`faster_whisper`/`goqii_vertex` in prod (`sarvam_batch` adds real speaker diarization, at the cost of a much slower job-based turnaround) |
 | `REDIS_URL` | api, worker | e.g. `redis://default:<pw>@<host>:<port>` |
 | `API_PORT` / `WEB_ORIGIN` / `NEXT_PUBLIC_API_URL` | — | defaults: 4000 / localhost:3000 / localhost:4000 |
 
@@ -83,7 +83,7 @@ pnpm --filter @gooqi/worker dev
 2. **New Session** → enter patient name/phone → tick the consent checkbox → Start.
 3. Record ~30s of audio → Stop. Chunks persist to IndexedDB then upload; on Stop
    the API assembles `audio.webm` and enqueues transcription.
-4. The worker (mock ASR) produces a transcript, then Claude generates the SOAP
+4. The worker (mock ASR) produces a transcript, then Gemini generates the SOAP
    note + prescriptions. Session moves `audio_uploaded → transcribing →
    generating_note → draft`.
 5. The review screen shows the transcript, editable SOAP fields, and the Rx table.
@@ -95,9 +95,10 @@ pnpm --filter @gooqi/worker dev
 
 - **ASR is swappable** behind `ASRProvider` (`packages/shared/src/asr`). Switch
   providers via the `ASR_PROVIDER` env var only — no code change (PRD §6.2, G9).
-- **Note generation** is a two-call Anthropic `tool_use` flow with `tool_choice:
-  { type: "any" }` and server-side Zod validation before any DB write, with a
-  one-shot retry on validation failure (PRD §6.3). Model: `claude-sonnet-4-6`.
+- **Note generation** is a two-call Google Gemini function-calling flow (forced
+  call via `toolConfig.functionCallingConfig.mode: "ANY"`) with server-side Zod
+  validation before any DB write, with a one-shot retry on validation failure
+  (PRD §6.3). Model: `gemini-2.5-flash`.
 - **Crash-safe recording**: 30s `MediaRecorder` chunks written to IndexedDB
   before upload, with retry/backoff, a resume banner on reload, WakeLock, and
   background-flush on tab hide (PRD §6.4).

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Pill, Printer, MessagesSquare } from "lucide-react";
 import type { Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import type {
@@ -10,9 +11,18 @@ import type {
   TranscriptResponse,
 } from "@/lib/api-types";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
-export function ReadOnlyView({ sessionId }: { sessionId: string }) {
+export function ReadOnlyView({
+  sessionId,
+  patientName,
+  visitDate,
+}: {
+  sessionId: string;
+  patientName?: string | null;
+  visitDate?: string | null;
+}) {
   const { request } = useApi();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [note, setNote] = useState<Partial<NoteFields> | null>(null);
@@ -67,34 +77,53 @@ export function ReadOnlyView({ sessionId }: { sessionId: string }) {
     };
   }, [summary, loadNote]);
 
-  if (loading) return <p className="text-slate-400">Loading…</p>;
+  if (loading)
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
   if (error)
     return (
-      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
         {error}
       </div>
     );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       <div className="flex justify-end no-print">
         <Button variant="secondary" onClick={() => window.print()}>
+          <Printer className="size-4" />
           Print summary
         </Button>
       </div>
 
       {/* PRINT AREA: patient visit summary (A5) */}
       <Card data-print-area>
+        {/* Document header — only shown when printing */}
+        <div className="hidden px-5 pt-5 print:block">
+          <div className="text-lg font-semibold">
+            {patientName || "Patient visit summary"}
+          </div>
+          {visitDate && (
+            <div className="text-xs">Visit date: {formatVisitDate(visitDate)}</div>
+          )}
+        </div>
         <CardHeader>
-          <h2 className="font-medium text-slate-900">Visit Summary</h2>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="size-4 text-primary" />
+            Visit Summary
+          </CardTitle>
         </CardHeader>
         <CardBody>
           {summary ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
               {summary}
             </p>
           ) : (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               The patient visit summary is still being generated…
             </p>
           )}
@@ -104,7 +133,10 @@ export function ReadOnlyView({ sessionId }: { sessionId: string }) {
       {/* Clinical note (not printed) */}
       <Card className="no-print">
         <CardHeader>
-          <h2 className="font-medium text-slate-900">Clinical Note</h2>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="size-4 text-primary" />
+            Clinical Note
+          </CardTitle>
         </CardHeader>
         <CardBody className="space-y-3 text-sm">
           <ReadField label="Chief complaint" value={note?.chief_complaint} />
@@ -129,38 +161,45 @@ export function ReadOnlyView({ sessionId }: { sessionId: string }) {
       {/* Prescriptions (not printed) */}
       <Card className="no-print">
         <CardHeader>
-          <h2 className="font-medium text-slate-900">Prescriptions</h2>
+          <CardTitle className="flex items-center gap-2">
+            <Pill className="size-4 text-primary" />
+            Prescriptions
+          </CardTitle>
         </CardHeader>
         <CardBody>
           {note?.no_medication ? (
-            <p className="text-sm text-slate-600">No medication prescribed.</p>
+            <p className="text-sm text-muted-foreground">
+              No medication prescribed.
+            </p>
           ) : prescriptions.length === 0 ? (
-            <p className="text-sm text-slate-400">None recorded.</p>
+            <p className="text-sm text-muted-foreground">None recorded.</p>
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="py-1 pr-3">Drug</th>
-                  <th className="py-1 pr-3">Dose</th>
-                  <th className="py-1 pr-3">Frequency</th>
-                  <th className="py-1 pr-3">Duration</th>
-                  <th className="py-1 pr-3">Route</th>
-                  <th className="py-1">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {prescriptions.map((r, i) => (
-                  <tr key={i}>
-                    <td className="py-1 pr-3 font-medium">{r.drug_name}</td>
-                    <td className="py-1 pr-3">{r.dose || "—"}</td>
-                    <td className="py-1 pr-3">{r.frequency || "—"}</td>
-                    <td className="py-1 pr-3">{r.duration || "—"}</td>
-                    <td className="py-1 pr-3">{r.route || "—"}</td>
-                    <td className="py-1">{r.notes || "—"}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="py-1 pr-3">Drug</th>
+                    <th className="py-1 pr-3">Dose</th>
+                    <th className="py-1 pr-3">Frequency</th>
+                    <th className="py-1 pr-3">Duration</th>
+                    <th className="py-1 pr-3">Route</th>
+                    <th className="py-1">Notes</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {prescriptions.map((r, i) => (
+                    <tr key={i}>
+                      <td className="py-1.5 pr-3 font-medium">{r.drug_name}</td>
+                      <td className="py-1.5 pr-3">{r.dose || "—"}</td>
+                      <td className="py-1.5 pr-3">{r.frequency || "—"}</td>
+                      <td className="py-1.5 pr-3">{r.duration || "—"}</td>
+                      <td className="py-1.5 pr-3">{r.route || "—"}</td>
+                      <td className="py-1.5">{r.notes || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardBody>
       </Card>
@@ -168,18 +207,21 @@ export function ReadOnlyView({ sessionId }: { sessionId: string }) {
       {/* Transcript (not printed) */}
       <Card className="no-print">
         <CardHeader>
-          <h2 className="font-medium text-slate-900">Transcript</h2>
+          <CardTitle className="flex items-center gap-2">
+            <MessagesSquare className="size-4 text-primary" />
+            Transcript
+          </CardTitle>
         </CardHeader>
         <CardBody className="space-y-2">
           {turns.length === 0 ? (
-            <p className="text-sm text-slate-400">No transcript.</p>
+            <p className="text-sm text-muted-foreground">No transcript.</p>
           ) : (
             turns.map((t, i) => (
               <p key={i} className="text-sm">
-                <span className="font-medium capitalize text-slate-500">
+                <span className="font-medium capitalize text-primary">
                   {t.speaker}:
                 </span>{" "}
-                <span className="text-slate-800">{t.text}</span>
+                <span>{t.text}</span>
               </p>
             ))
           )}
@@ -187,6 +229,18 @@ export function ReadOnlyView({ sessionId }: { sessionId: string }) {
       </Card>
     </div>
   );
+}
+
+function formatVisitDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function ReadField({
@@ -199,10 +253,10 @@ function ReadField({
   if (!value) return null;
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <p className="whitespace-pre-wrap text-slate-800">{value}</p>
+      <p className="whitespace-pre-wrap">{value}</p>
     </div>
   );
 }
