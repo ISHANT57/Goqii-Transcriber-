@@ -5,6 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Gooqi Scribe",
     short_name: "Gooqi",
     description: "Your AI-powered medical documentation assistant",
+    id: "/?source=pwa",
     start_url: "/",
     display: "standalone",
     orientation: "portrait",
@@ -12,27 +13,22 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0f172a",
     icons: [
       {
-        src: "/icon-192.svg",
+        src: "/icon-192.png",
         sizes: "192x192",
-        type: "image/svg+xml",
-        purpose: "maskable"
+        type: "image/png",
+        purpose: "any maskable"
       },
       {
-        src: "/icon-512.svg",
+        src: "/icon-512.png",
         sizes: "512x512",
-        type: "image/svg+xml",
-        purpose: "any"
-      },
-      {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
+        type: "image/png",
+        purpose: "any maskable"
       },
     ],
     screenshots: [
       {
         src: "/screenshot-desktop.svg.png",
-        sizes: "1280x720",
+        sizes: "2752x1536",
         type: "image/png",
         form_factor: "wide"
       } as any,
