@@ -1,6 +1,6 @@
 # Gooqi Scribe — Deployment Guide
 
-> **Frontend → Vercel** | **Backend (API + Worker + Redis) → Render**
+> **Frontend → Vercel (Free Tier)** | **Backend (API + In-Process Tasks) → Render (Free Tier)**
 
 ---
 
@@ -10,12 +10,11 @@
 gooqi-medical-transcriber/         ← monorepo root (Turborepo + pnpm)
 ├── apps/
 │   ├── web/                       ← Next.js 15 frontend  → Vercel
-│   ├── api/                       ← Express 4 REST API   → Render (web service)
-│   └── worker/                    ← BullMQ job worker    → Render (background worker)
+│   └── api/                       ← Express 4 REST API   → Render (web service)
 ├── packages/
 │   └── shared/                    ← TypeScript types shared by all apps
 ├── supabase/                      ← DB migrations & RLS policies
-├── render.yaml                    ← Render Blueprint (api + worker + redis)
+├── render.yaml                    ← Render Blueprint (api only)
 ├── turbo.json                     ← Turborepo pipeline
 └── .env.example                   ← All environment variables documented
 ```
@@ -25,9 +24,7 @@ gooqi-medical-transcriber/         ← monorepo root (Turborepo + pnpm)
 | Service | Runtime | Host | Role |
 |---------|---------|------|------|
 | `apps/web` | Next.js 15 | **Vercel** | Patient-facing UI, auth via Supabase |
-| `apps/api` | Express + TypeScript | **Render** (web) | REST API, file uploads, session logic |
-| `apps/worker` | BullMQ + TypeScript | **Render** (worker) | Async transcription & note generation |
-| Redis | Redis 7 | **Render** (redis) | Job queue for BullMQ |
+| `apps/api` | Express + TypeScript | **Render** (web) | REST API, session logic + in-process transcription & note generation |
 | Database | PostgreSQL | **Supabase** | All clinical data, auth, storage |
 
 ---
@@ -52,38 +49,26 @@ gooqi-medical-transcriber/         ← monorepo root (Turborepo + pnpm)
 2. Connect your GitHub repo: `ISHANT57/Goqii-Transcriber-`
 3. Render auto-reads `render.yaml` and creates:
    - `gooqi-api` (web service, free tier)
-   - `gooqi-worker` (background worker, starter plan required)
-   - `gooqi-redis` (Redis, starter plan required)
 4. Click **Apply** — Render queues the first deploy
 
-> ⚠️ **Render Free Tier Limitation:** Background workers and Redis require a **paid Starter plan** (~$7/month each). The API web service can run on the free tier but will cold-start after 15 minutes of inactivity.
+> 💡 **No Redis or Background Workers required:** All transcription, SOAP note, and patient summary generation tasks run asynchronously in-process inside the Express web service.
 
 ### 1b. Set secret environment variables
 
-After the Blueprint is applied, go to each service's **Environment** tab and add:
-
-#### `gooqi-api` service
+After the Blueprint is applied, go to `gooqi-api` service's **Environment** tab and add:
 
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `SUPABASE_URL` | `https://xxxx.supabase.co` | Supabase → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Supabase → Settings → API → service_role key |
+| `GEMINI_API_KEY` | `AIza...` | Google AI Studio |
 | `WEB_ORIGIN` | `https://your-app.vercel.app` | Set after Vercel deploy; use `*` temporarily |
 | `ASR_PROVIDER` | `mock` | Change to `sarvam`/`deepgram`/`assemblyai` when ready |
 
-#### `gooqi-worker` service
-
-| Variable | Value | Notes |
-|----------|-------|-------|
-| `SUPABASE_URL` | same as above | |
-| `SUPABASE_SERVICE_ROLE_KEY` | same as above | |
-| `GEMINI_API_KEY` | `AIza...` | Google AI Studio |
-| `ASR_PROVIDER` | `mock` | Or a real ASR provider |
-| `SARVAM_API_KEY` | *(optional)* | If using Sarvam for Hindi/Hinglish ASR |
-| `DEEPGRAM_API_KEY` | *(optional)* | If using Deepgram |
-| `ASSEMBLYAI_API_KEY` | *(optional)* | If using AssemblyAI |
-
-> `REDIS_URL` is **automatically injected** from the `gooqi-redis` service — you don't need to set it manually.
+Optional ASR provider keys (only needed if `ASR_PROVIDER` is set to that specific provider):
+- `SARVAM_API_KEY` (for Hindi/Hinglish ASR)
+- `DEEPGRAM_API_KEY` (for fast multilingual ASR)
+- `ASSEMBLYAI_API_KEY` (for AssemblyAI ASR)
 
 ### 1c. Verify API is live
 
@@ -184,7 +169,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 NEXT_PUBLIC_API_URL=https://gooqi-api.onrender.com
 ```
 
-### Backend (`apps/api` + `apps/worker`) — Render
+### Backend (`apps/api`) — Render
 
 ```env
 SUPABASE_URL=https://xxxx.supabase.co
@@ -192,7 +177,6 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 WEB_ORIGIN=https://your-app.vercel.app
 GEMINI_API_KEY=AIzaSy...
 ASR_PROVIDER=mock                      # or: sarvam | deepgram | assemblyai
-REDIS_URL=                             # auto-injected by Render from redis service
 
 # Optional ASR keys (only if ASR_PROVIDER is set to that provider)
 SARVAM_API_KEY=
@@ -225,7 +209,7 @@ Backend (Render)
   ☐ Blueprint applied from render.yaml
   ☐ gooqi-api: SUPABASE_URL set
   ☐ gooqi-api: SUPABASE_SERVICE_ROLE_KEY set
-  ☐ gooqi-worker: GEMINI_API_KEY set
+  ☐ gooqi-api: GEMINI_API_KEY set
   ☐ API health check passes: /health → {"ok":true}
 
 Frontend (Vercel)
@@ -257,16 +241,12 @@ pnpm install
 cp .env.example .env
 # Edit .env with your Supabase keys and set NEXT_PUBLIC_API_URL=http://localhost:4000
 
-# 3. Start Redis (requires Docker)
-docker run -d -p 6379:6379 redis:7
-
-# 4. Start all services in parallel
+# 3. Start all services in parallel
 pnpm dev
 
 # Services start at:
 #   Frontend:  http://localhost:3000
 #   API:       http://localhost:4000
-#   Worker:    background process
 ```
 
 ---
@@ -277,8 +257,7 @@ pnpm dev
 |---------|-----|
 | `CORS error` in browser | Check `WEB_ORIGIN` on Render matches your Vercel URL exactly |
 | Auth redirect loop | Update Supabase Site URL and Redirect URLs |
-| Sessions stuck in `transcribing` | Worker not running — check Render worker service logs |
-| `cold start` delays | Render free tier sleeps after 15 min inactivity; upgrade to Starter |
+| `cold start` delays | Render free tier sleeps after 15 min inactivity; upgrade to Starter if needed |
 | Build fails on Vercel | Ensure Root Directory is `apps/web`, not the repo root |
 | `@gooqi/shared` not found | Vercel needs `installCommand` from `vercel.json` to install workspace deps |
 
@@ -290,9 +269,7 @@ pnpm dev
 |---------|-----------|------|
 | Vercel (Frontend) | Free (hobby) | ~$20/mo (pro) |
 | Render API | Free (cold starts) | $7/mo (starter) |
-| Render Worker | ❌ Not free | $7/mo (starter) |
-| Render Redis | ❌ Not free | $7/mo (starter) |
 | Supabase | Free (generous limits) | $25/mo (pro) |
 | Gemini API | Pay-per-use | ~$0.50 per 1M tokens |
 
-**Minimum monthly cost for production:** ~$21/month (Render worker + Redis)
+**Minimum monthly cost for production:** **$0 / month** (all run on generous free plans!)

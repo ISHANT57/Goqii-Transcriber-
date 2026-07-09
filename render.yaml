@@ -1,19 +1,12 @@
-# Render Blueprint — deploys the Gooqi backend (API + worker + Redis).
+# Render Blueprint — deploys the Gooqi backend on Render's Free Plan.
 #
 # The frontend (apps/web) is NOT here — it deploys to Vercel.
 #
-# Services run with `tsx` (not `node dist`) on purpose: @gooqi/shared is
-# consumed as TypeScript source (its package.json exports point to .ts), so a
-# compiled `node dist` run cannot resolve it. tsx transpiles on the fly — the
-# same way local dev runs. `--prod=false` forces pnpm to install devDependencies
-# (tsx lives there) even though Render sets NODE_ENV=production.
+# Background worker and Redis are removed. The Express API handles
+# transcription and note generation in-process asynchronously.
 #
 # Setup: Render Dashboard → New → Blueprint → connect this repo → apply.
-# Then fill the `sync: false` secrets in each service's Environment tab.
-#
-# NOTE ON PLANS: Background workers and Redis are not on Render's free tier —
-# they require a paid (Starter) plan. The API web service can run on free
-# (it will cold-start after inactivity). Adjust `plan:` to taste.
+# Then fill the `sync: false` secrets in the service's Environment tab.
 
 services:
   # -------------------------------------------------------------- API (HTTP)
@@ -35,42 +28,12 @@ services:
       - key: WEB_ORIGIN
         sync: false # your Vercel URL, e.g. https://gooqi-scribe.vercel.app
       - key: ASR_PROVIDER
-        value: mock # switch to sarvam/deepgram/etc. once keys are set
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: gooqi-redis
-          property: connectionString
-
-  # ---------------------------------------------------------- Worker (queue)
-  - type: worker
-    name: gooqi-worker
-    runtime: node
-    plan: starter # workers are not available on the free tier
-    region: singapore
-    buildCommand: pnpm install --frozen-lockfile --prod=false
-    startCommand: pnpm --filter @gooqi/worker exec tsx src/worker.ts
-    envVars:
-      - key: NODE_VERSION
-        value: "20"
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+        value: mock # switch to sarvam/deepgram/assemblyai/etc. once keys are set
       - key: GEMINI_API_KEY
-        sync: false # required for SOAP/prescription generation
-      - key: ASR_PROVIDER
-        value: mock
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: gooqi-redis
-          property: connectionString
-
-  # ------------------------------------------------------------------- Redis
-  - type: redis
-    name: gooqi-redis
-    plan: starter # Redis is not available on the free tier
-    region: singapore
-    ipAllowList: [] # empty = reachable only from your Render services
-    maxmemoryPolicy: noeviction # required by BullMQ
+        sync: false # required for SOAP/prescription/summary generation
+      - key: SARVAM_API_KEY
+        sync: false # optional
+      - key: DEEPGRAM_API_KEY
+        sync: false # optional
+      - key: ASSEMBLYAI_API_KEY
+        sync: false # optional
