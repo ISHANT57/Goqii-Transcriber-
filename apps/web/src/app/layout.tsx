@@ -10,8 +10,13 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Gooqi Health Transcriber",
+  title: "Gooqi Scribe",
   description: "Clinical consultation transcription and note generation.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Gooqi Scribe",
+  },
 };
 
 export const viewport: Viewport = {
@@ -19,6 +24,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({
