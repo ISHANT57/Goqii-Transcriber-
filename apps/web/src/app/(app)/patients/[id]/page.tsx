@@ -900,7 +900,7 @@ export default function PatientProfilePage({
                                   >
                                     <Bookmark className={cn("size-3.5", node.isBookmarked && "fill-amber-400 text-amber-400")} />
                                   </button>
-                                  <Button asChild size="xs" variant="secondary" className="rounded-lg bg-muted border border-border hover:bg-muted/80 text-[10px] px-2 py-1 h-fit">
+                                  <Button asChild size="sm" variant="secondary" className="rounded-lg bg-muted border border-border hover:bg-muted/80 text-[10px] px-2 py-1 h-fit">
                                     <Link href={`/sessions/${node.sessionId}`}>
                                       Open File
                                     </Link>
