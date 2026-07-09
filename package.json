@@ -2,9 +2,9 @@
   "name": "gooqi-medical-transcriber",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.5.1",
+  "packageManager": "pnpm@9.15.4",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "build": "turbo run build",
@@ -13,7 +13,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "preflight": "node scripts/preflight.mjs",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && node -e \"fs.rmSync('node_modules', { recursive: true, force: true })\""
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
