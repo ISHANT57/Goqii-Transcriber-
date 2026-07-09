@@ -20,7 +20,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "22.13.0"
       - key: SUPABASE_URL
         sync: false # https://<ref>.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
