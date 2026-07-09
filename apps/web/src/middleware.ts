@@ -10,70 +10,86 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("CRITICAL: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing from environment variables!");
+    return new NextResponse(
+      "Configuration Error: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured in Vercel project environment variables.",
+      { status: 500 }
+    );
+  }
+
+  try {
+    const supabase = createServerClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet: CookieToSet[]) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value),
+            );
+            supabaseResponse = NextResponse.next({ request });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options),
+            );
+          },
         },
       },
-    },
-  );
+    );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-  const isPublic =
-    pathname === "/" ||
-    pathname === "/login" ||
-    pathname.startsWith("/auth") ||
-    pathname.startsWith("/_next");
+    const { pathname } = request.nextUrl;
+    const isPublic =
+      pathname === "/" ||
+      pathname === "/login" ||
+      pathname.startsWith("/auth") ||
+      pathname.startsWith("/_next");
 
-  if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    if (!user && !isPublic) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+
+    // Step-up enforcement: a doctor with a verified TOTP factor must reach AAL2
+    // before touching PHI. If they're only at AAL1, send them to /login to
+    // complete the 2FA challenge (the login page detects the pending step-up).
+    let needsMfa = false;
+    if (user) {
+      const { data: aal } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      needsMfa =
+        aal?.currentLevel === "aal1" && aal?.nextLevel === "aal2";
+    }
+
+    if (user && needsMfa && !isPublic) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+
+    // Already fully signed in but visiting /login → send to sessions. Users who
+    // still owe a 2FA code stay on /login to complete it.
+    if (user && !needsMfa && pathname === "/login") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sessions";
+      return NextResponse.redirect(url);
+    }
+
+    return supabaseResponse;
+  } catch (error) {
+    console.error("Middleware processing crash:", error);
+    return supabaseResponse;
   }
-
-  // Step-up enforcement: a doctor with a verified TOTP factor must reach AAL2
-  // before touching PHI. If they're only at AAL1, send them to /login to
-  // complete the 2FA challenge (the login page detects the pending step-up).
-  let needsMfa = false;
-  if (user) {
-    const { data: aal } =
-      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    needsMfa =
-      aal?.currentLevel === "aal1" && aal?.nextLevel === "aal2";
-  }
-
-  if (user && needsMfa && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  // Already fully signed in but visiting /login → send to sessions. Users who
-  // still owe a 2FA code stay on /login to complete it.
-  if (user && !needsMfa && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/sessions";
-    return NextResponse.redirect(url);
-  }
-
-  return supabaseResponse;
 }
 
 export const config = {
