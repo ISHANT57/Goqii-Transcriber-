@@ -6,17 +6,23 @@ import { createClient } from "@/lib/supabase/server";
  * then redirects to the sessions list (or `next` if provided).
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/sessions";
+  try {
+    const { searchParams, origin } = new URL(request.url);
+    const code = searchParams.get("code");
+    const next = searchParams.get("next") ?? "/sessions";
 
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+    if (code) {
+      const supabase = await createClient();
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (!error) {
+        return NextResponse.redirect(`${origin}${next}`);
+      }
+      console.error("Auth exchange error:", error);
     }
-  }
 
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+    return NextResponse.redirect(`${new URL(request.url).origin}/login?error=auth`);
+  } catch (err: any) {
+    console.error("Callback route error:", err);
+    return NextResponse.json({ error: "Internal Server Error", message: err.message }, { status: 500 });
+  }
 }
