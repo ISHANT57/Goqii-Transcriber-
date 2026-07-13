@@ -41,7 +41,9 @@ dump.rdb
 # Android / Bubblewrap
 .gradle/
 android.keystore
-app/
+# Anchor to repo root: a bare `app/` also matches apps/web/src/app/ (Next.js
+# routes), silently making new route files un-committable.
+/app/
 gradlew
 gradlew.bat
 gradle/
