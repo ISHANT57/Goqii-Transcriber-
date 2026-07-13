@@ -25,6 +25,8 @@ services:
         sync: false # https://<ref>.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false # server-only secret
+      # SUPABASE_JWT_SECRET only needed for legacy HS256 projects; asymmetric
+      # (ES256/RS256) projects verify locally via JWKS with no secret.
       - key: WEB_ORIGIN
         sync: false # your Vercel URL, e.g. https://gooqi-scribe.vercel.app
       - key: ASR_PROVIDER

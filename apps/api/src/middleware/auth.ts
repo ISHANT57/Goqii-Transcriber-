@@ -7,6 +7,7 @@
  */
 import type { Request, Response, NextFunction } from "express";
 import { supabase } from "../lib/supabase.js";
+import { verifyAccessToken } from "../lib/authToken.js";
 import { asyncHandler, HttpError } from "./error.js";
 
 /**
@@ -57,20 +58,17 @@ export const requireAuth = asyncHandler(
     }
     const jwt = match[1];
 
-    const { data, error } = await supabase.auth.getUser(jwt);
-    if (error || !data?.user) {
+    // Verify locally (fast, no network) when the JWT secret is configured;
+    // otherwise this transparently falls back to Supabase Auth over the network.
+    const identity = await verifyAccessToken(jwt);
+    if (!identity) {
       throw new HttpError(401, "Invalid or expired token");
     }
 
-    const user = data.user;
-    req.doctorId = user.id;
-    req.userEmail = user.email ?? undefined;
+    req.doctorId = identity.userId;
+    req.userEmail = identity.email;
 
-    await ensureDoctor(
-      user.id,
-      user.email ?? undefined,
-      user.user_metadata as Record<string, unknown> | undefined,
-    );
+    await ensureDoctor(identity.userId, identity.email, identity.metadata);
 
     next();
   },

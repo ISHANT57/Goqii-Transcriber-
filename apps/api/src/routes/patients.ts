@@ -9,6 +9,7 @@ import { Router, type Request } from "express";
 import type { Patient } from "@gooqi/shared";
 import { supabase } from "../lib/supabase.js";
 import { deleteSessionCascade } from "../lib/deletion.js";
+import { getLatestNotesBySession } from "./sessions.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler, HttpError } from "../middleware/error.js";
 
@@ -252,22 +253,19 @@ patientsRouter.get(
     }
 
     // Enrich with the latest clinical note summary (mirrors GET /api/sessions).
-    const enriched = await Promise.all(
-      (sessions ?? []).map(async (s: Record<string, unknown>) => {
-        const { data: note } = await supabase
-          .from("clinical_notes")
-          .select("chief_complaint, primary_diagnosis")
-          .eq("session_id", s.id as string)
-          .order("edit_number", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        return {
-          ...s,
-          chief_complaint: note?.chief_complaint ?? null,
-          primary_diagnosis: note?.primary_diagnosis ?? null,
-        };
-      }),
+    // Batched into a single query instead of one lookup per session (N+1).
+    const rows = sessions ?? [];
+    const latestNoteBySession = await getLatestNotesBySession(
+      rows.map((s: Record<string, unknown>) => s.id as string),
     );
+    const enriched = rows.map((s: Record<string, unknown>) => {
+      const note = latestNoteBySession.get(s.id as string);
+      return {
+        ...s,
+        chief_complaint: note?.chief_complaint ?? null,
+        primary_diagnosis: note?.primary_diagnosis ?? null,
+      };
+    });
 
     res.json({ sessions: enriched });
   }),

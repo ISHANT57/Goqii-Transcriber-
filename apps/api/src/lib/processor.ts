@@ -182,6 +182,25 @@ export async function processTranscribe(sessionId: string): Promise<void> {
     // 1. status → transcribing
     await setStatus(sessionId, "transcribing");
 
+    // Idempotency guard: this job is retried on transient failure (and can be
+    // retried manually), so re-running must not insert a DUPLICATE transcript.
+    // If a transcript already exists, the audio was already transcribed — skip
+    // the (expensive, non-deterministic) ASR call and resume at note generation.
+    const { data: existingTranscript } = await supabase
+      .from("transcripts")
+      .select("id")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingTranscript) {
+      log(sessionId, "transcribe-audio: transcript already exists, resuming at note generation");
+      await setStatus(sessionId, "generating_note");
+      await processGenerateNote(sessionId, existingTranscript.id as string);
+      log(sessionId, "transcribe-audio: done (resumed)");
+      return;
+    }
+
     // 2. load session + signed URL for the audio
     const { data: session, error: sErr } = await supabase
       .from("sessions")

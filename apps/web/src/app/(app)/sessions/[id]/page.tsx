@@ -1,16 +1,34 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useApi } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 import type { SessionDetail } from "@/lib/api-types";
 import type { SessionStatus } from "@gooqi/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/badge";
-import { ReviewEditor } from "@/components/review/ReviewEditor";
-import { ReadOnlyView } from "@/components/review/ReadOnlyView";
+
+// Code-split the two heavy, mutually-exclusive views: only one renders per
+// status, so shipping both in the route's initial JS is wasted bytes. The
+// editor in particular (autosave, drug-safety, prescription grid) is large.
+const editorFallback = (
+  <div className="space-y-4">
+    <Skeleton className="h-8 w-48" />
+    <Skeleton className="h-64 w-full" />
+  </div>
+);
+const ReviewEditor = dynamic(
+  () => import("@/components/review/ReviewEditor").then((m) => m.ReviewEditor),
+  { loading: () => editorFallback },
+);
+const ReadOnlyView = dynamic(
+  () => import("@/components/review/ReadOnlyView").then((m) => m.ReadOnlyView),
+  { loading: () => editorFallback },
+);
 
 const PROCESSING: SessionStatus[] = [
   "audio_uploaded",
@@ -36,7 +54,6 @@ export default function SessionDetailPage({
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -57,21 +74,12 @@ export default function SessionDetailPage({
     void load();
   }, [load]);
 
-  // Poll every 4s while processing.
-  useEffect(() => {
-    if (!session) return;
-    const isProcessing = POLLING_STATUSES.includes(session.status);
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (isProcessing) {
-      pollRef.current = setInterval(() => void load(), 4000);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [session, load]);
+  // Poll while the session is in a state that can still change (processing or
+  // recording). Backs off and pauses in background tabs — see usePolling.
+  usePolling({
+    enabled: session != null && POLLING_STATUSES.includes(session.status),
+    onPoll: load,
+  });
 
   async function retry() {
     if (!session) return;

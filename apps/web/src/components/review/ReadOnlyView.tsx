@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   FileText,
   Pencil,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 import type {
   NoteFields,
   NoteResponse,
@@ -43,7 +44,6 @@ export function ReadOnlyView({
   const [savingSummary, setSavingSummary] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadNote = useCallback(async () => {
     const n = await request<NoteResponse>(`/api/sessions/${sessionId}/note`);
@@ -76,21 +76,14 @@ export function ReadOnlyView({
     };
   }, [request, sessionId, loadNote]);
 
-  // Poll for the visit summary until it appears (initial generation, or
-  // after a manual regenerate cleared it).
+  // Poll for the visit summary until it appears (initial generation, or after a
+  // manual regenerate cleared it). Backs off + pauses when hidden — see usePolling.
+  usePolling({ enabled: !summary, onPoll: loadNote });
+
+  // Once the summary lands, clear the "regenerating" affordance.
   useEffect(() => {
-    if (summary) {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (regenerating) setRegenerating(false);
-      return;
-    }
-    pollRef.current = setInterval(() => {
-      void loadNote();
-    }, 4000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [summary, loadNote, regenerating]);
+    if (summary && regenerating) setRegenerating(false);
+  }, [summary, regenerating]);
 
   function startEditSummary() {
     setSummaryError(null);

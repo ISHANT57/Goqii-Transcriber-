@@ -16,6 +16,7 @@ import { sessionsRouter } from "./routes/sessions.js";
 import { patientsRouter } from "./routes/patients.js";
 import { doctorRouter } from "./routes/doctor.js";
 import { errorMiddleware } from "./middleware/error.js";
+import { startJobRunner } from "./lib/jobs.js";
 
 // Render/Heroku-style hosts inject the port to bind on via PORT; fall back to
 // API_PORT (local dev) then 4000.
@@ -69,4 +70,9 @@ app.use(errorMiddleware);
 
 app.listen(API_PORT, "0.0.0.0", () => {
   console.log(`[api] listening on 0.0.0.0:${API_PORT} (web origin: ${WEB_ORIGIN})`);
+  // Recover orphaned jobs and begin draining the durable queue. Non-fatal if it
+  // fails (e.g. table not yet migrated) — enqueue falls back to in-process.
+  startJobRunner().catch((err) =>
+    console.error("[api] job runner failed to start:", err),
+  );
 });

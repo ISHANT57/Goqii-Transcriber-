@@ -49,6 +49,27 @@ async function getOwnedSession(req: Request, sessionId: string): Promise<Session
   return data as Session;
 }
 
+/**
+ * Ownership check for hot paths that don't need the full session row (chunk
+ * upload + crash-recovery polling fire every few seconds during recording).
+ * Selects only `doctor_id` instead of `*` to keep the round-trip lean.
+ */
+async function assertSessionOwnership(
+  req: Request,
+  sessionId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("doctor_id")
+    .eq("id", sessionId)
+    .single();
+
+  if (error || !data || data.doctor_id !== req.doctorId) {
+    throw new HttpError(404, "Session not found");
+  }
+  return sessionId;
+}
+
 /** Decode a JWT payload without verifying the signature (verification is done
  * separately via Supabase). Returns null if the token is not a well-formed JWT. */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -211,26 +232,24 @@ sessionsRouter.get(
     const rows = sessions ?? [];
 
     // Attach chief_complaint / primary_diagnosis from the latest clinical note.
-    const enriched = await Promise.all(
-      rows.map(async (s: Record<string, unknown>) => {
-        const { data: note } = await supabase
-          .from("clinical_notes")
-          .select("chief_complaint, primary_diagnosis")
-          .eq("session_id", s.id as string)
-          .order("edit_number", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        const patient = s.patient as { name?: string; phone?: string } | null;
-        return {
-          ...s,
-          patient_name: patient?.name ?? null,
-          patient_phone: patient?.phone ?? null,
-          chief_complaint: note?.chief_complaint ?? null,
-          primary_diagnosis: note?.primary_diagnosis ?? null,
-        };
-      }),
+    // Batched: one query for every session's notes instead of an N+1 fan-out
+    // (one round-trip per session). Latest-per-session is resolved in memory,
+    // preserving the original "highest edit_number wins" semantics.
+    const latestNoteBySession = await getLatestNotesBySession(
+      rows.map((s: Record<string, unknown>) => s.id as string),
     );
+
+    const enriched = rows.map((s: Record<string, unknown>) => {
+      const note = latestNoteBySession.get(s.id as string);
+      const patient = s.patient as { name?: string; phone?: string } | null;
+      return {
+        ...s,
+        patient_name: patient?.name ?? null,
+        patient_phone: patient?.phone ?? null,
+        chief_complaint: note?.chief_complaint ?? null,
+        primary_diagnosis: note?.primary_diagnosis ?? null,
+      };
+    });
 
     res.json(enriched);
   }),
@@ -313,7 +332,7 @@ sessionsRouter.post(
   "/sessions/:id/chunks",
   upload.single("chunk"),
   asyncHandler(async (req, res) => {
-    const session = await getOwnedSession(req, req.params.id!);
+    const sessionId = await assertSessionOwnership(req, req.params.id!);
     const file = req.file;
     if (!file) {
       throw new HttpError(400, "Missing chunk file");
@@ -323,7 +342,7 @@ sessionsRouter.post(
       throw new HttpError(400, "chunkIndex must be a non-negative integer");
     }
 
-    const storagePath = `sessions/${session.id}/chunks/${chunkIndex}.webm`;
+    const storagePath = `sessions/${sessionId}/chunks/${chunkIndex}.webm`;
     const { error: upErr } = await supabase.storage
       .from(AUDIO_BUCKET)
       .upload(storagePath, file.buffer, {
@@ -336,7 +355,7 @@ sessionsRouter.post(
 
     const { error: rowErr } = await supabase.from("audio_chunks").upsert(
       {
-        session_id: session.id,
+        session_id: sessionId,
         chunk_index: chunkIndex,
         storage_path: storagePath,
         size_bytes: file.size,
@@ -347,7 +366,7 @@ sessionsRouter.post(
       throw new HttpError(500, `Chunk record failed: ${rowErr.message}`);
     }
 
-    const acknowledgedIndices = await getAcknowledgedIndices(session.id);
+    const acknowledgedIndices = await getAcknowledgedIndices(sessionId);
     res.json({ acknowledgedIndices });
   }),
 );
@@ -358,8 +377,8 @@ sessionsRouter.post(
 sessionsRouter.get(
   "/sessions/:id/chunks/acknowledged",
   asyncHandler(async (req, res) => {
-    const session = await getOwnedSession(req, req.params.id!);
-    const acknowledgedIndices = await getAcknowledgedIndices(session.id);
+    const sessionId = await assertSessionOwnership(req, req.params.id!);
+    const acknowledgedIndices = await getAcknowledgedIndices(sessionId);
     res.json({ acknowledgedIndices });
   }),
 );
@@ -414,22 +433,26 @@ sessionsRouter.post(
       });
     }
 
-    // Download each chunk in order and byte-concatenate.
-    // Byte-concat is valid for a single MediaRecorder WebM/Opus stream split
-    // across timeslices (no ffmpeg available in this environment).
-    const buffers: Buffer[] = [];
-    for (const chunk of chunks) {
-      const { data: blob, error: dErr } = await supabase.storage
-        .from(AUDIO_BUCKET)
-        .download(chunk.storage_path as string);
-      if (dErr || !blob) {
-        throw new HttpError(
-          500,
-          `Failed to download chunk ${chunk.chunk_index}: ${dErr?.message}`,
-        );
-      }
-      buffers.push(Buffer.from(await blob.arrayBuffer()));
-    }
+    // Download all chunks concurrently, then byte-concatenate IN ORDER.
+    // (`chunks` is already sorted ascending, and Promise.all preserves order,
+    // so the assembled buffer is deterministic.) Byte-concat is valid for a
+    // single MediaRecorder WebM/Opus stream split across timeslices (no ffmpeg
+    // available in this environment). Parallelising turns N serial storage
+    // round-trips into one wall-clock round-trip.
+    const buffers = await Promise.all(
+      chunks.map(async (chunk) => {
+        const { data: blob, error: dErr } = await supabase.storage
+          .from(AUDIO_BUCKET)
+          .download(chunk.storage_path as string);
+        if (dErr || !blob) {
+          throw new HttpError(
+            500,
+            `Failed to download chunk ${chunk.chunk_index}: ${dErr?.message}`,
+          );
+        }
+        return Buffer.from(await blob.arrayBuffer());
+      }),
+    );
     const assembled = Buffer.concat(buffers);
 
     const audioPath = `sessions/${session.id}/audio.webm`;
@@ -831,6 +854,44 @@ sessionsRouter.post(
 );
 
 /* ----------------------------- helpers ------------------------------------ */
+
+/**
+ * Latest clinical-note summary (chief_complaint + primary_diagnosis) for a set
+ * of sessions, in ONE query. Replaces per-session N+1 fan-out on list endpoints.
+ * "Latest" mirrors getLatestNote: highest edit_number, then most recent.
+ */
+export async function getLatestNotesBySession(
+  sessionIds: string[],
+): Promise<
+  Map<string, { chief_complaint: string | null; primary_diagnosis: string | null }>
+> {
+  const result = new Map<
+    string,
+    { chief_complaint: string | null; primary_diagnosis: string | null }
+  >();
+  if (sessionIds.length === 0) return result;
+
+  const { data, error } = await supabase
+    .from("clinical_notes")
+    .select("session_id, chief_complaint, primary_diagnosis, edit_number, created_at")
+    .in("session_id", sessionIds)
+    .order("edit_number", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    throw new HttpError(500, `Failed to read notes: ${error.message}`);
+  }
+
+  // Rows arrive newest-first per the ordering above; first seen per session wins.
+  for (const row of data ?? []) {
+    const sid = (row as Record<string, unknown>).session_id as string;
+    if (result.has(sid)) continue;
+    result.set(sid, {
+      chief_complaint: (row as Record<string, unknown>).chief_complaint as string | null,
+      primary_diagnosis: (row as Record<string, unknown>).primary_diagnosis as string | null,
+    });
+  }
+  return result;
+}
 
 async function getLatestNote(
   sessionId: string,
