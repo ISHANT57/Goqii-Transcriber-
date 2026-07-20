@@ -4,7 +4,11 @@ import { useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const getApiUrl = (): string => {
-  const defaultUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  // A trailing slash here (e.g. NEXT_PUBLIC_API_URL="https://api.example.com/")
+  // would double up with paths that already start with "/" (".../api/sessions"
+  // -> ".../<empty>/api/sessions"), 404ing every request — strip it once here
+  // rather than trusting every path/env-var combination to avoid it.
+  const defaultUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
   if (typeof window !== "undefined") {
     const isLocalhost =
       window.location.hostname === "localhost" ||

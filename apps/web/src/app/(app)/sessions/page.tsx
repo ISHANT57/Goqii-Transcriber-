@@ -673,29 +673,44 @@ function EmptyState({
   hasSessions: boolean;
   filtering: boolean;
 }) {
+  // First-ever visit (no sessions, no filter applied): guide the doctor into
+  // a quick, frictionless trial rather than a generic "no data" message —
+  // this is the one moment that decides whether they come back.
+  if (!hasSessions && !filtering) {
+    return (
+      <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <span className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Mic className="size-6" />
+        </span>
+        <div className="max-w-sm space-y-1">
+          <p className="font-medium">Try your first recording</p>
+          <p className="text-sm text-muted-foreground">
+            Takes about a minute. Say a sentence or two — Hindi, Hinglish, or
+            English — and watch it turn into a structured note. No real
+            patient needed to try it.
+          </p>
+        </div>
+        <Button asChild size="lg">
+          <Link href="/sessions/new?demo=1">
+            <Mic className="size-4" />
+            Start my first recording
+          </Link>
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <Card className="flex flex-col items-center justify-center gap-3 py-16 text-center">
       <span className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Mic className="size-6" />
       </span>
       <div>
-        <p className="font-medium">
-          {filtering ? "No sessions match your filters" : "No sessions yet"}
-        </p>
+        <p className="font-medium">No sessions match your filters</p>
         <p className="text-sm text-muted-foreground">
-          {filtering
-            ? "Try a different search or status filter."
-            : "Start a new session to record your first consultation."}
+          Try a different search or status filter.
         </p>
       </div>
-      {!hasSessions && (
-        <Button asChild>
-          <Link href="/sessions/new">
-            <Mic className="size-4" />
-            New Session
-          </Link>
-        </Button>
-      )}
     </Card>
   );
 }

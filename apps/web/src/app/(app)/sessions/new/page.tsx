@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Check, ShieldCheck, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Check, Sparkles, ShieldCheck, User } from "lucide-react";
 import { CONSENT_TEXT_EN, CONSENT_TEXT_HI } from "@gooqi/shared/db";
 import { useApi } from "@/lib/api";
 import type { CreateSessionResponse } from "@/lib/api-types";
@@ -22,10 +23,18 @@ type Lang = "en" | "hi";
 
 export default function NewSessionPage() {
   const { request } = useApi();
+  const searchParams = useSearchParams();
+  const isDemo = searchParams.get("demo") === "1";
   const [step, setStep] = useState<Step>(1);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+
+  // Prefill a name for the guided first-recording flow so a new doctor
+  // doesn't have to invent a patient just to try the product.
+  useEffect(() => {
+    if (isDemo) setName("Demo Patient");
+  }, [isDemo]);
 
   const [language, setLanguage] = useState<Lang>("en");
   const [agreed, setAgreed] = useState(false);
@@ -62,11 +71,26 @@ export default function NewSessionPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">New Session</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {isDemo ? "Your first recording" : "New Session"}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Capture consent, then record the consultation.
+          {isDemo
+            ? "A quick practice run — no real patient needed."
+            : "Capture consent, then record the consultation."}
         </p>
       </div>
+
+      {isDemo && step === 1 && (
+        <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span>
+            We&apos;ve filled in a placeholder patient below so you can jump
+            straight to recording. Feel free to change it, or just hit
+            Continue.
+          </span>
+        </div>
+      )}
 
       <Stepper step={step} />
 
@@ -176,7 +200,22 @@ export default function NewSessionPage() {
         </Card>
       )}
 
-      {step === 3 && sessionId && <RecordingPanel sessionId={sessionId} />}
+      {step === 3 && sessionId && (
+        <>
+          {isDemo && (
+            <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+              <span>
+                Hit <strong>Start Recording</strong>, say a sentence or two —
+                Hindi, Hinglish, or English all work — then{" "}
+                <strong>Stop</strong>. You&apos;ll see a structured note
+                appear in seconds.
+              </span>
+            </div>
+          )}
+          <RecordingPanel sessionId={sessionId} />
+        </>
+      )}
     </div>
   );
 }

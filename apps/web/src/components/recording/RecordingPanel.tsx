@@ -587,49 +587,54 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
           </div>
         )}
 
-        {/* Controls */}
-        <div className="flex flex-wrap gap-3">
-          {state === "idle" && (
-            <Button size="lg" onClick={start}>
-              <Mic className="size-4" />
-              Start Recording
-            </Button>
-          )}
-          {state === "recording" && (
-            <>
-              <Button variant="secondary" size="lg" onClick={pause}>
-                <Pause className="size-4" />
-                Pause
-              </Button>
-              <Button variant="danger" size="lg" onClick={stop}>
-                <Square className="size-4" />
-                Stop
-              </Button>
-            </>
-          )}
-          {state === "paused" && (
-            <>
-              <Button size="lg" onClick={resume}>
-                <Play className="size-4" />
-                Resume
-              </Button>
-              <Button variant="danger" size="lg" onClick={stop}>
-                <Square className="size-4" />
-                Stop
-              </Button>
-            </>
-          )}
-          {state === "stopping" && (
-            <Button size="lg" loading disabled>
-              Finishing…
-            </Button>
-          )}
-        </div>
-
         <p className="text-xs text-muted-foreground">
           Audio is saved on this device as it records, so a refresh or lost
           connection will not lose the consultation.
         </p>
+
+        {/* Controls — sticky to the bottom edge on phones so Start/Pause/Stop
+            stay in one-thumb reach regardless of scroll position (this card
+            can get tall with the device selector + warnings visible); desktop
+            keeps the original inline layout. */}
+        <div className="sticky bottom-0 -mx-5 -mb-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:border-0 sm:bg-transparent sm:p-0">
+          <div className="flex gap-3">
+            {state === "idle" && (
+              <Button size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" onClick={start}>
+                <Mic className="size-5" />
+                Start Recording
+              </Button>
+            )}
+            {state === "recording" && (
+              <>
+                <Button variant="secondary" size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" onClick={pause}>
+                  <Pause className="size-5" />
+                  Pause
+                </Button>
+                <Button variant="danger" size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" onClick={stop}>
+                  <Square className="size-5" />
+                  Stop
+                </Button>
+              </>
+            )}
+            {state === "paused" && (
+              <>
+                <Button size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" onClick={resume}>
+                  <Play className="size-5" />
+                  Resume
+                </Button>
+                <Button variant="danger" size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" onClick={stop}>
+                  <Square className="size-5" />
+                  Stop
+                </Button>
+              </>
+            )}
+            {state === "stopping" && (
+              <Button size="lg" className="h-14 flex-1 text-base sm:h-12 sm:flex-none" loading disabled>
+                Finishing…
+              </Button>
+            )}
+          </div>
+        </div>
       </CardBody>
     </Card>
   );

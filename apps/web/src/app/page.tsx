@@ -521,16 +521,17 @@ function HeroDashboardConsole() {
 
       </div>
 
-      {/* Floating status badges */}
+      {/* Floating status badges — kept consistent with the real, measured
+          number in the Telemetry Data section below; no invented accuracy %. */}
       <div className="mt-6 flex flex-wrap justify-center gap-4 text-caption font-semibold">
         <span className="rounded-tags border border-white/[0.04] bg-iris-shadow/60 px-3.5 py-1.5 text-cloud-white/80 shadow-md">
-          🟢 97.8% Transcription Accuracy
+          🌐 Hindi, Hinglish &amp; English
         </span>
         <span className="rounded-tags border border-white/[0.04] bg-iris-shadow/60 px-3.5 py-1.5 text-cloud-white/80 shadow-md">
-          🔒 Encrypted AES-256 Sandbox
+          🔒 Encrypted Storage
         </span>
         <span className="rounded-tags border border-white/[0.04] bg-iris-shadow/60 px-3.5 py-1.5 text-cloud-white/80 shadow-md">
-          ⚡ 27.4s Average Note Delivery
+          ⚡ ~19s Median Note Delivery
         </span>
       </div>
 
@@ -570,10 +571,13 @@ function TrustBar() {
 
 /* -------------------------------------------------------------------------- */
 function StatBand() {
+  // Real, measured numbers only — no invented traction figures. The latency
+  // figure below is the actual median (stop-recording -> draft note) from
+  // production telemetry; update it periodically as usage grows rather than
+  // wiring a live public stats endpoint for a number that changes rarely.
   const stats = [
-    { value: "27.4s", label: "Average note completion", desc: "Structured clinical summaries generated and ready for sign-off under half a minute." },
-    { value: "97.8%", label: "ASR Speech Accuracy", desc: "Proprietary Whisper medical adaptation optimized for noisy Indian clinics & OPDs." },
-    { value: "12,482", label: "Visits processed", desc: "Consultations converted to secure documents this month without single data leak." },
+    { value: "~19s", label: "Median time to a draft note", desc: "Measured from the moment recording stops to a structured SOAP draft appearing, across real sessions." },
+    { value: "3", label: "Languages understood", desc: "English, Hindi, and Hinglish — spoken naturally, mixed mid-sentence, no need to pick one." },
   ];
   return (
     <section className="bg-iris-glow/90 border-b border-white/[0.08] relative py-24 overflow-hidden">
@@ -592,48 +596,28 @@ function StatBand() {
           </div>
           <div>
             <p className="text-subheading text-pearl/80 leading-relaxed font-medium max-w-md">
-              Structured clinical summaries and prescriptions, drafted instantly from raw conversation. Believable telemetry metrics tracked in real-time.
+              Structured clinical summaries and prescriptions, drafted instantly from raw conversation.
             </p>
           </div>
         </div>
-        
-        {/* Asymmetrical Stats layout (1 Large Card + 2 Stacked smaller cards) */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          {/* Large Card */}
-          <div className="md:col-span-2 rounded-cards bg-iris-shadow border border-white/[0.08] p-8 flex flex-col justify-between hover:border-white/[0.12] hover:-translate-y-1 transition-all duration-300 shadow-xl group">
-            <div className="space-y-4">
-              <span className="rounded bg-mint-vital/15 px-2.5 py-0.5 text-[11px] font-bold text-mint-vital uppercase border border-mint-vital/25">
-                PRIMARY ACCELERATOR
-              </span>
-              <div className="text-[64px] md:text-[80px] font-semibold text-clinical-cyan leading-none tracking-[-0.04em]">
-                {stats[0].value}
-              </div>
-              <div className="text-[20px] font-semibold text-cloud-white">{stats[0].label}</div>
-            </div>
-            <p className="mt-6 text-[15px] text-pearl/75 leading-relaxed font-medium max-w-lg">
-              {stats[0].desc}
-            </p>
-          </div>
 
-          {/* Stacked smaller cards */}
-          <div className="flex flex-col gap-6">
-            {stats.slice(1).map((s) => (
-              <div
-                key={s.label}
-                className="rounded-cards bg-iris-shadow border border-white/[0.08] p-6 hover:border-white/[0.12] hover:-translate-y-1 transition-all duration-300 shadow-lg group flex flex-col justify-between h-full"
-              >
-                <div>
-                  <div className="text-[36px] font-bold text-mint-vital leading-none tracking-tight">
-                    {s.value}
-                  </div>
-                  <div className="text-[16px] font-semibold text-cloud-white mt-2">{s.label}</div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className="rounded-cards bg-iris-shadow border border-white/[0.08] p-8 flex flex-col justify-between hover:border-white/[0.12] hover:-translate-y-1 transition-all duration-300 shadow-xl group"
+            >
+              <div className="space-y-4">
+                <div className="text-[56px] md:text-[64px] font-semibold text-clinical-cyan leading-none tracking-[-0.04em]">
+                  {s.value}
                 </div>
-                <p className="mt-4 text-[13px] text-pearl/70 leading-relaxed font-medium">
-                  {s.desc}
-                </p>
+                <div className="text-[20px] font-semibold text-cloud-white">{s.label}</div>
               </div>
-            ))}
-          </div>
+              <p className="mt-6 text-[15px] text-pearl/75 leading-relaxed font-medium max-w-lg">
+                {s.desc}
+              </p>
+            </div>
+          ))}
         </div>
 
       </div>
