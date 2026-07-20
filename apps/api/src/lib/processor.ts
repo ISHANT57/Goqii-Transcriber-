@@ -220,6 +220,7 @@ export async function processTranscribe(sessionId: string): Promise<void> {
         `failed to sign audio url: ${urlErr?.message ?? "no url"}`,
       );
     }
+    const audioUrl = signed.signedUrl;
 
     // 3. transcription options
     const options: TranscribeOptions = {
@@ -234,7 +235,7 @@ export async function processTranscribe(sessionId: string): Promise<void> {
     // 4. transcribe using ASR provider configured in env
     const providerName = process.env.ASR_PROVIDER ?? "mock";
     const provider = createASRProvider(providerName);
-    const result = await provider.transcribe(signed.signedUrl, options);
+    const result = await provider.transcribe(audioUrl, options);
     log(
       sessionId,
       `transcribed via ${result.providerName}: ${result.turns.length} turns, ${result.durationMs}ms`,

@@ -15,6 +15,9 @@ import { rateLimit } from "express-rate-limit";
 import { sessionsRouter } from "./routes/sessions.js";
 import { patientsRouter } from "./routes/patients.js";
 import { doctorRouter } from "./routes/doctor.js";
+import { remindersRouter } from "./routes/reminders.js";
+import { analyticsRouter } from "./routes/analytics.js";
+import { templatesRouter } from "./routes/templates.js";
 import { errorMiddleware } from "./middleware/error.js";
 import { startJobRunner } from "./lib/jobs.js";
 
@@ -64,6 +67,9 @@ app.get("/", (_req, res) => {
 app.use("/api", apiLimiter, sessionsRouter);
 app.use("/api", apiLimiter, patientsRouter);
 app.use("/api", apiLimiter, doctorRouter);
+app.use("/api", apiLimiter, remindersRouter);
+app.use("/api", apiLimiter, analyticsRouter);
+app.use("/api", apiLimiter, templatesRouter);
 
 // Central error handler (must be last).
 app.use(errorMiddleware);

@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import type { SessionStatus } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import type { SessionListItem } from "@/lib/api-types";
+import { RemindersPanel } from "@/components/RemindersPanel";
 import { useConfirm } from "@/components/ui/confirm";
 import { StatusBadge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -175,6 +176,8 @@ export default function SessionsPage() {
           </Link>
         </Button>
       </div>
+
+      <RemindersPanel />
 
       <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-3 sm:gap-4">
         <StatCard

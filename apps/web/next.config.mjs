@@ -1,4 +1,16 @@
 import withSerwistInit from "@serwist/next";
+import fs from "fs";
+import path from "path";
+
+try {
+  const fileToDelete = path.join(process.cwd(), "public", "icon.svg");
+  if (fs.existsSync(fileToDelete)) {
+    fs.unlinkSync(fileToDelete);
+    console.log("Deleted conflicting public/icon.svg");
+  }
+} catch (e) {
+  // ignore
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

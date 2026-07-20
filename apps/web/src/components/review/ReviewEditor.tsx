@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
+  Bookmark,
   CheckCircle2,
   FileText,
   MessagesSquare,
@@ -15,10 +17,11 @@ import { toast } from "sonner";
 import type { SpeakerLabel, Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
-import { COMMON_DRUGS, checkDose, checkFrequency } from "@/lib/drugSafety";
+import { COMMON_DRUGS, checkAllergyConflicts, checkDose, checkFrequency } from "@/lib/drugSafety";
 import type {
   NoteFields,
   NoteResponse,
+  NoteTemplate,
   PrescriptionDraft,
   TranscriptResponse,
 } from "@/lib/api-types";
@@ -30,6 +33,14 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SignoffDialog, type ReauthProof } from "@/components/review/SignoffDialog";
 
 const SPEAKERS: SpeakerLabel[] = ["doctor", "patient", "other", "unknown"];
@@ -47,6 +58,7 @@ function emptyNote(): NoteFields {
     primary_diagnosis: "",
     differentials: [],
     follow_up: "",
+    follow_up_date: null,
     no_medication: false,
   };
 }
@@ -98,6 +110,7 @@ export function ReviewEditor({
   const [note, setNote] = useState<NoteFields>(emptyNote());
   const [prescriptions, setPrescriptions] = useState<PrescriptionDraft[]>([]);
   const [summary, setSummary] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<NoteTemplate[]>([]);
 
   const [tab, setTab] = useState<Tab>("soap");
   const [loading, setLoading] = useState(true);
@@ -110,6 +123,12 @@ export function ReviewEditor({
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+
+  // Keep a ref of the latest state to avoid stale closures in autosave/blur callbacks.
+  const stateRef = useRef({ note, prescriptions, turns });
+  useEffect(() => {
+    stateRef.current = { note, prescriptions, turns };
+  }, [note, prescriptions, turns]);
 
   // --- Load doctor name --------------------------------------------------
   useEffect(() => {
@@ -150,6 +169,60 @@ export function ReviewEditor({
     void load();
   }, [load]);
 
+  // --- Note templates ("macros") ------------------------------------------
+  useEffect(() => {
+    request<{ templates: NoteTemplate[] }>("/api/templates")
+      .then((res) => setTemplates(res.templates ?? []))
+      .catch(() => { });
+  }, [request]);
+
+  function applyTemplate(t: NoteTemplate) {
+    setNote((n) => ({
+      ...n,
+      chief_complaint: t.chief_complaint ?? n.chief_complaint,
+      subjective: t.subjective ?? n.subjective,
+      objective: t.objective ?? n.objective,
+      assessment: t.assessment ?? n.assessment,
+      plan: t.plan ?? n.plan,
+      follow_up: t.follow_up ?? n.follow_up,
+    }));
+    markDirty();
+    toast.success(`Loaded template "${t.name}"`);
+  }
+
+  async function saveAsTemplate() {
+    const name = window.prompt("Template name (e.g. \"URI follow-up\"):")?.trim();
+    if (!name) return;
+    try {
+      const res = await request<{ template: NoteTemplate }>("/api/templates", {
+        method: "POST",
+        body: {
+          name,
+          chief_complaint: note.chief_complaint,
+          subjective: note.subjective,
+          objective: note.objective,
+          assessment: note.assessment,
+          plan: note.plan,
+          follow_up: note.follow_up,
+        },
+      });
+      setTemplates((ts) => [...ts, res.template].sort((a, b) => a.name.localeCompare(b.name)));
+      toast.success(`Saved template "${name}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save template.");
+    }
+  }
+
+  async function deleteTemplate(t: NoteTemplate) {
+    try {
+      await request(`/api/templates/${t.id}`, { method: "DELETE" });
+      setTemplates((ts) => ts.filter((x) => x.id !== t.id));
+      toast.success(`Deleted template "${t.name}"`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete template.");
+    }
+  }
+
   // --- Saving ------------------------------------------------------------
   const save = useCallback(async () => {
     if (saveTimer.current) {
@@ -158,18 +231,19 @@ export function ReviewEditor({
     }
     setSaving(true);
     try {
+      const current = stateRef.current;
       await request(`/api/sessions/${sessionId}/note`, {
         method: "PATCH",
         body: {
-          ...note,
-          prescriptions,
-          no_medication: note.no_medication,
+          ...current.note,
+          prescriptions: current.prescriptions,
+          no_medication: current.note.no_medication,
         },
       });
       // Best-effort transcript persistence (separate resource).
       await request(`/api/sessions/${sessionId}/transcript`, {
         method: "PATCH",
-        body: { turns },
+        body: { turns: current.turns },
       }).catch(() => { });
       dirtyRef.current = false;
       setDirty(false);
@@ -185,7 +259,7 @@ export function ReviewEditor({
     } finally {
       setSaving(false);
     }
-  }, [note, prescriptions, turns, request, sessionId]);
+  }, [request, sessionId]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
@@ -260,6 +334,11 @@ export function ReviewEditor({
     setPrescriptions((rx) => rx.filter((_, idx) => idx !== i));
     markDirty();
   }
+
+  const allergyWarnings = useMemo(
+    () => checkAllergyConflicts(note.subjective, prescriptions),
+    [note.subjective, prescriptions],
+  );
 
   // --- Sign-off gating ---------------------------------------------------
   const hasValidRx = prescriptions.some(
@@ -363,6 +442,17 @@ export function ReviewEditor({
         </div>
       )}
 
+      {allergyWarnings.length > 0 && (
+        <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          {allergyWarnings.map((w, i) => (
+            <p key={i} className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* LEFT: transcript */}
         <Card className="h-fit">
@@ -443,6 +533,14 @@ export function ReviewEditor({
               </TabsList>
 
               <TabsContent value="soap">
+                <div className="mb-3 flex justify-end">
+                  <TemplatesMenu
+                    templates={templates}
+                    onApply={applyTemplate}
+                    onSave={saveAsTemplate}
+                    onDelete={deleteTemplate}
+                  />
+                </div>
                 <SoapFields note={note} onField={setNoteField} onBlur={flushSave} />
               </TabsContent>
 
@@ -583,7 +681,77 @@ function SoapFields({
           onBlur={onBlur}
         />
       </Field>
+      <Field label="Follow-up date (optional — shows on the Follow-ups panel)">
+        <Input
+          type="date"
+          value={note.follow_up_date ?? ""}
+          onChange={(e) => onField("follow_up_date", e.target.value || null)}
+          onBlur={onBlur}
+        />
+      </Field>
     </div>
+  );
+}
+
+function TemplatesMenu({
+  templates,
+  onApply,
+  onSave,
+  onDelete,
+}: {
+  templates: NoteTemplate[];
+  onApply: (t: NoteTemplate) => void;
+  onSave: () => void;
+  onDelete: (t: NoteTemplate) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="secondary" size="sm">
+          <Bookmark className="size-4" />
+          Templates
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="normal-case">
+          Load a saved template
+        </DropdownMenuLabel>
+        {templates.length === 0 ? (
+          <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+            No templates saved yet.
+          </div>
+        ) : (
+          templates.map((t) => (
+            <DropdownMenuItem
+              key={t.id}
+              className="justify-between gap-2"
+              onSelect={(e) => {
+                e.preventDefault();
+                onApply(t);
+              }}
+            >
+              <span className="truncate">{t.name}</span>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(t);
+                }}
+                aria-label={`Delete template ${t.name}`}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </DropdownMenuItem>
+          ))
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onSave}>
+          <Plus className="size-4" />
+          Save current SOAP as template
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

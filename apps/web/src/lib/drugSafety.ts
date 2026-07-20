@@ -88,6 +88,50 @@ export function checkDose(dose: string): string | null {
   return null;
 }
 
+/**
+ * Extract the allergy list from the note's "Subjective" text. The server
+ * renders this section as label-prefixed lines (see renderSubjective in
+ * apps/api/src/lib/processor.ts) — "Allergies: Penicillin, Sulfa drugs" — so we
+ * pull the line starting with that label and split it into individual terms.
+ */
+function extractAllergies(subjectiveText: string): string[] {
+  const match = subjectiveText.match(/^Allergies:\s*(.+)$/im);
+  if (!match || !match[1]) return [];
+  return match[1]
+    .split(/[,;]| and /i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !/^(none|nka|n\/?a|no known)/i.test(s));
+}
+
+/**
+ * Advisory (never blocking, same philosophy as checkDose/checkFrequency): warn
+ * when a prescribed drug name contains — or is contained by — a recorded
+ * allergy term. Plain substring matching, not a drug-interaction database —
+ * it catches the doctor prescribing the exact allergen by name, not cross-
+ * reactive drug classes.
+ */
+export function checkAllergyConflicts(
+  subjectiveText: string,
+  prescriptions: { drug_name: string }[],
+): string[] {
+  const allergies = extractAllergies(subjectiveText ?? "");
+  if (allergies.length === 0) return [];
+
+  const warnings: string[] = [];
+  for (const rx of prescriptions) {
+    const drug = rx.drug_name.trim();
+    if (!drug) continue;
+    const drugLower = drug.toLowerCase();
+    for (const allergy of allergies) {
+      const allergyLower = allergy.toLowerCase();
+      if (drugLower.includes(allergyLower) || allergyLower.includes(drugLower)) {
+        warnings.push(`Patient is allergic to "${allergy}" — prescription includes "${drug}".`);
+      }
+    }
+  }
+  return warnings;
+}
+
 /** Recognised frequency shorthands and phrasings (English + common Latin abbreviations). */
 const FREQUENCY_RE =
   /\b(od|bd|bid|tds|tid|qid|qds|sos|prn|stat|hs|q\d+h|once|twice|thrice|\d+\s*times?)\b|\b(daily|day|night|morning|evening|hourly|weekly)\b/i;

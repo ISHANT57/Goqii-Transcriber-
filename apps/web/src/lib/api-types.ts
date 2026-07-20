@@ -79,7 +79,36 @@ export interface NoteFields {
   primary_diagnosis: string;
   differentials: string[];
   follow_up: string;
+  follow_up_date: string | null;
   no_medication: boolean;
+}
+
+/** A row in GET /api/reminders — a finalised session with a follow-up due soon/overdue. */
+export interface ReminderItem {
+  session_id: string;
+  patient_name: string | null;
+  patient_phone: string | null;
+  follow_up_date: string;
+  overdue: boolean;
+}
+
+/** GET /api/analytics */
+export interface AnalyticsResponse {
+  visitsByWeek: { week: string; count: number }[];
+  topDiagnoses: { label: string; count: number }[];
+  topDrugs: { label: string; count: number }[];
+}
+
+/** A saved SOAP note skeleton ("macro"). */
+export interface NoteTemplate {
+  id: string;
+  name: string;
+  chief_complaint: string | null;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
+  follow_up: string | null;
 }
 
 /** GET /api/sessions/:id/note */

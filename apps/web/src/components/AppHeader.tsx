@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
+  BarChart3,
   Bell,
   ChevronDown,
   History,
@@ -29,6 +30,7 @@ const NAV = [
   { href: "/sessions/new", label: "New Session", icon: Mic },
   { href: "/sessions", label: "History", icon: History },
   { href: "/patients", label: "Patients", icon: Users },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
 function initials(email?: string) {
